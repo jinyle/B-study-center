@@ -38,6 +38,17 @@ export interface QuizData {
   topicSummary: string; // 150-word quick recap
   keyFormulas: KeyFormula[]; // Important physics formulas involved
   questions: QuizQuestion[];
+  fillBlanks?: QuizFillBlank[];
+}
+
+// Single fill-in-the-blank question
+export interface QuizFillBlank {
+  id: number;
+  question: string;
+  correctAnswer: string;
+  difficulty: "basic" | "intermediate" | "challenging";
+  explanation: string;
+  hint: string;
 }
 
 // Single multi-choice question

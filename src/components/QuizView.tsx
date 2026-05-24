@@ -12,9 +12,10 @@ import {
   Lightbulb,
   Compass,
   CornerDownRight,
-  RefreshCw
+  RefreshCw,
+  Award
 } from "lucide-react";
-import { QuizData, QuizQuestion } from "../types";
+import { QuizData, QuizQuestion, QuizFillBlank } from "../types";
 
 interface QuizViewProps {
   quizData: QuizData;
@@ -24,36 +25,71 @@ interface QuizViewProps {
 }
 
 export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }: QuizViewProps) {
+  const choiceLength = quizData.questions.length;
+  const fillBlanks = quizData.fillBlanks || [];
+  const fillBlankLength = fillBlanks.length;
+  const totalLength = choiceLength + fillBlankLength;
+
   const [currentIdx, setCurrentIdx] = useState(0);
+  
+  // Choice state: questionId -> selectedOption index
   const [selectedAnswers, setSelectedAnswers] = useState<{ [key: number]: number }>({});
+  // Fill-in-the-blank state: blankId -> typed text
+  const [typedAnswers, setTypedAnswers] = useState<{ [key: number]: string }>({});
+  
   const [submitted, setSubmitted] = useState<boolean>(false);
   const [showHint, setShowHint] = useState<boolean>(false);
   
   // AI teacher consultation states
   const [consulting, setConsulting] = useState<boolean>(false);
   const [childQuery, setChildQuery] = useState("");
-  const [aiAnswers, setAiAnswers] = useState<{ [qId: number]: string }>({});
+  
+  // AI answer states mapped by index/id
+  const [aiAnswers, setAiAnswers] = useState<{ [qKey: string]: string }>({});
   const [consultError, setConsultError] = useState<string | null>(null);
 
-  const currentQuestion = quizData.questions[currentIdx];
-  const isLastQuestion = currentIdx === quizData.questions.length - 1;
+  const isFillBlankMode = currentIdx >= choiceLength;
+  const currentChoice = !isFillBlankMode ? quizData.questions[currentIdx] : null;
+  const currentBlank = isFillBlankMode ? fillBlanks[currentIdx - choiceLength] : null;
+
+  const isLastQuestion = currentIdx === totalLength - 1;
 
   const handleSelectOption = (optIdx: number) => {
-    if (submitted) return; // Cannot modify after submitting this question
-    setSelectedAnswers(prev => ({ ...prev, [currentQuestion.id]: optIdx }));
+    if (submitted || !currentChoice) return;
+    setSelectedAnswers(prev => ({ ...prev, [currentChoice.id]: optIdx }));
+  };
+
+  const checkFillBlankCorrect = (blank: QuizFillBlank) => {
+    const userInput = (typedAnswers[blank.id] || "").trim().toLowerCase();
+    const correctVal = blank.correctAnswer.trim().toLowerCase();
+    if (!userInput) return false;
+    // Allow smart matching (identity, subset check, e.g. "重力" matches "重力")
+    return userInput === correctVal || userInput.includes(correctVal) || correctVal.includes(userInput);
   };
 
   const handleNext = () => {
     setConsultError(null);
     if (isLastQuestion) {
-      // Calculate final score
+      // Calculate final score combined across both phases
       let correctCount = 0;
+      
+      // 1. Grade choices
       quizData.questions.forEach(q => {
         if (selectedAnswers[q.id] === q.correctAnswer) {
           correctCount++;
         }
       });
-      const finalScore = Math.round((correctCount / quizData.questions.length) * 100);
+
+      // 2. Grade fillBlanks
+      fillBlanks.forEach(fb => {
+        if (checkFillBlankCorrect(fb)) {
+          correctCount++;
+        }
+      });
+
+      const finalScore = Math.round((correctCount / totalLength) * 100);
+      
+      // Compatibility mapping: convert selectedAnswers Choice index mapping to App
       onFinishQuiz(finalScore, selectedAnswers, correctCount);
     } else {
       setCurrentIdx(prev => prev + 1);
@@ -62,22 +98,28 @@ export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }:
     }
   };
 
-  // Connect to server-side Gemini endpoint to get custom physics explain response
   const handleConsultAi = async (e: FormEvent) => {
     e.preventDefault();
     if (!childQuery.trim()) return;
 
     setConsulting(true);
     setConsultError(null);
+    
+    const queryKey = isFillBlankMode ? `fb_${currentBlank!.id}` : `c_${currentChoice!.id}`;
+    const questionText = isFillBlankMode ? currentBlank!.question : currentChoice!.question;
+    const standardExpl = isFillBlankMode ? currentBlank!.explanation : currentChoice!.explanation;
+    const selected = isFillBlankMode ? (typedAnswers[currentBlank!.id] || "未作答") : (selectedAnswers[currentChoice!.id] ?? -1);
+    const correct = isFillBlankMode ? currentBlank!.correctAnswer : currentChoice!.correctAnswer;
+
     try {
       const response = await fetch("/api/ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question: currentQuestion.question,
-          selectedOption: selectedAnswers[currentQuestion.id] ?? -1,
-          correctOption: currentQuestion.correctAnswer,
-          explanation: currentQuestion.explanation,
+          question: questionText,
+          selectedOption: selected,
+          correctOption: correct,
+          explanation: standardExpl,
           childQuery: childQuery
         })
       });
@@ -86,11 +128,11 @@ export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }:
       if (resJson.success && resJson.explanationText) {
         setAiAnswers(prev => ({
           ...prev,
-          [currentQuestion.id]: resJson.explanationText
+          [queryKey]: resJson.explanationText
         }));
         setChildQuery("");
       } else {
-        setConsultError(resJson.error || "获取AI名师解析失败，请捎后重试");
+        setConsultError(resJson.error || "获取AI名师解析失败，请稍后重试");
       }
     } catch (err: any) {
       console.error(err);
@@ -100,19 +142,17 @@ export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }:
     }
   };
 
-  // Convert raw Markdown text to beautiful HTML-styled structure simply so we don't have peer dependency errors in React 19
   const renderSimpleMarkdown = (text: string) => {
     if (!text) return null;
     return text.split("\n").map((line, i) => {
-      // Bullets
       if (line.trim().startsWith("*") || line.trim().startsWith("-")) {
         return (
-          <li key={i} className="text-slate-600 text-sm ml-4 list-disc mt-1 font-medium leading-relaxed">
+          <li key={i} className="text-slate-300 text-xs ml-4 list-disc mt-1 font-medium leading-relaxed">
             {line.trim().substring(1).trim()}
           </li>
         );
       }
-      // Bold items
+      
       const boldRegex = /\*\*(.*?)\*\*/g;
       let chunks = [];
       let lastIndex = 0;
@@ -121,20 +161,19 @@ export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }:
         if (match.index > lastIndex) {
           chunks.push(line.substring(lastIndex, match.index));
         }
-        chunks.push(<strong key={match.index} className="text-blue-700 font-bold">{match[1]}</strong>);
+        chunks.push(<strong key={match.index} className="text-amber-300 font-bold">{match[1]}</strong>);
         lastIndex = boldRegex.lastIndex;
       }
       if (lastIndex < line.length) {
         chunks.push(line.substring(lastIndex));
       }
 
-      // Headers like ###
       if (line.trim().startsWith("###")) {
-        return <h4 key={i} className="text-sm font-bold text-blue-950 mt-3">{line.replace("###", "").trim()}</h4>;
+        return <h4 key={i} className="text-xs font-bold text-amber-400 mt-3">{line.replace("###", "").trim()}</h4>;
       }
 
       return (
-        <p key={i} className="text-slate-600 text-sm mt-1.5 leading-relaxed font-normal">
+        <p key={i} className="text-slate-300 text-xs mt-1 leading-relaxed font-normal">
           {chunks.length > 0 ? chunks : line}
         </p>
       );
@@ -144,148 +183,191 @@ export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }:
   const getDifficultyBadge = (difficulty: string) => {
     switch (difficulty) {
       case "basic":
-        return <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 text-[11px] font-bold rounded-full">基础稳固</span>;
+        return <span className="px-2.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded-full">基础巩固</span>;
       case "intermediate":
-        return <span className="px-2.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-100 text-[11px] font-bold rounded-full">中考进阶</span>;
+        return <span className="px-2.5 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold rounded-full">中考冲刺</span>;
       case "challenging":
-        return <span className="px-2.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-100 text-[11px] font-bold rounded-full">思维拓展</span>;
+        return <span className="px-2.5 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-bold rounded-full">思维拉伸</span>;
       default:
         return null;
     }
   };
 
-  const hasAnsweredCurrent = selectedAnswers[currentQuestion.id] !== undefined;
-  const isCorrect = selectedAnswers[currentQuestion.id] === currentQuestion.correctAnswer;
+  // Choice phase details
+  const hasAnsweredChoice = currentChoice ? selectedAnswers[currentChoice.id] !== undefined : false;
+  const isChoiceCorrect = currentChoice ? selectedAnswers[currentChoice.id] === currentChoice.correctAnswer : false;
+
+  // FillBlank phase details
+  const currentBlankInput = currentBlank ? (typedAnswers[currentBlank.id] || "") : "";
+  const hasAnsweredBlank = currentBlankInput.trim().length > 0;
+  const isBlankCorrect = currentBlank ? checkFillBlankCorrect(currentBlank) : false;
+
+  const currentTutorKey = isFillBlankMode ? `fb_${currentBlank?.id}` : `c_${currentChoice?.id}`;
+  const currentExplanation = isFillBlankMode ? currentBlank?.explanation : currentChoice?.explanation;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-4 space-y-6">
+    <div className="max-w-[1600px] w-full mx-auto px-4 py-4 space-y-6">
       {/* Quiz Top Action Bar */}
-      <div className="flex items-center justify-between bg-white/5 backdrop-blur-md px-5 py-4 rounded-2xl border border-white/10 shadow-lg text-white">
+      <div className="flex items-center justify-between bg-slate-900/80 backdrop-blur-md px-5 py-4 rounded-3xl border border-white/10 shadow-lg text-white">
         <button 
           onClick={onBack}
-          className="flex items-center gap-2 text-slate-300 hover:text-white text-sm font-medium transition-colors cursor-pointer"
+          className="flex items-center gap-2 text-slate-300 hover:text-white text-xs font-medium transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
-          返回学习大厅
+          返回影院大厅
         </button>
         <div className="text-right">
-          <span className="text-xs text-slate-400 font-medium block">正在答题的课程</span>
-          <span className="text-sm font-bold text-slate-100 max-w-sm block truncate">{videoTitle}</span>
+          <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">正在测评视频</span>
+          <span className="text-xs font-extrabold text-slate-100 max-w-sm block truncate">{videoTitle}</span>
         </div>
       </div>
 
       {/* Progress Card */}
-      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white/10 shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-12">
+      <div className="bg-slate-900/60 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-12 text-white">
         
-        {/* Left Interactive panel: Questions & Answers (Col: 8) */}
-        <div className="md:col-span-8 p-6 space-y-6 border-r border-white/10">
+        {/* Left Panel: Question presentation (Col: 6) */}
+        <div className="md:col-span-6 p-8 space-y-6 border-r border-white/10">
           
           {/* Question Meta Row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 bg-blue-600 text-white font-mono font-black text-sm rounded-xl shadow-md">
-                Q {currentQuestion.id} / {quizData.questions.length}
+              <span className="px-3 py-1 bg-blue-600/30 border border-blue-500/40 text-blue-300 font-mono font-black text-[11px] rounded-xl shadow-md">
+                第 {currentIdx + 1} 题 / 共 {totalLength} 题
               </span>
-              {getDifficultyBadge(currentQuestion.difficulty)}
+              <span className="px-2 py-0.5 bg-indigo-500/15 border border-indigo-400/25 text-[10px] font-black rounded-full text-indigo-300 uppercase tracking-widest">
+                {isFillBlankMode ? "✏️ 概念填空" : "📝 单项选择"}
+              </span>
+              {getDifficultyBadge(isFillBlankMode ? currentBlank!.difficulty : currentChoice!.difficulty)}
             </div>
             <button
-              id="hint-btn"
               onClick={() => setShowHint(!showHint)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border border-amber-500/20"
+              className="flex items-center gap-1.5 text-[10px] font-black text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-xl transition-colors cursor-pointer border border-amber-500/20 shadow-sm"
             >
               <Lightbulb className="w-3.5 h-3.5" />
-              {showHint ? "隐藏思路启发" : "点击启发思路"}
+              {showHint ? "收起提示" : "获取解题点拨"}
             </button>
           </div>
 
-          {/* Question Text */}
-          <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
-            <h3 className="text-base font-semibold text-slate-100 leading-relaxed">
-              {currentQuestion.question}
+          {/* Question text card with distinct styling */}
+          <div className="bg-white/5 rounded-2xl p-5 border border-white/10 relative">
+            <h3 className="text-sm md:text-base font-extrabold text-slate-100 leading-relaxed select-text">
+              {isFillBlankMode ? currentBlank!.question : currentChoice!.question}
             </h3>
           </div>
 
-          {/* Interactive Hint panel */}
+          {/* Helpful Idea hint drawer */}
           {showHint && (
-            <div className="bg-amber-950/40 border border-amber-500/20 rounded-2xl p-4 flex gap-3 animate-fade-in">
-              <Compass className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="bg-amber-950/30 border border-amber-500/30 rounded-2xl p-4 flex gap-3 animate-fade-in">
+              <Compass className="w-5 h-5 text-amber-400 shrink-0 mt-0.5 animate-pulse" />
               <div>
-                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider block">学科小探客思路启发:</span>
-                <p className="text-xs text-amber-200/90 leading-relaxed font-medium mt-1">{currentQuestion.hint}</p>
+                <span className="text-[10px] font-black text-amber-300 uppercase tracking-widest block">AI 专属特级名师思路启发:</span>
+                <p className="text-xs text-amber-100 leading-relaxed font-semibold mt-1">
+                  {isFillBlankMode ? currentBlank!.hint : currentChoice!.hint}
+                </p>
               </div>
             </div>
           )}
 
-          {/* Options Grid */}
-          <div className="space-y-2.5">
-            {currentQuestion.options.map((option, idx) => {
-              const letter = String.fromCharCode(65 + idx); // A, B, C, D
-              const isSelected = selectedAnswers[currentQuestion.id] === idx;
-              const isOptionCorrect = idx === currentQuestion.correctAnswer;
-              
-              let btnClass = "border-white/10 hover:bg-white/5 text-slate-200";
-              let letterBackground = "bg-white/10 text-slate-300 group-hover:bg-blue-500/30 group-hover:text-blue-200 border border-white/15";
-              
-              if (isSelected) {
-                // If submitted, show correct vs incorrect
-                if (submitted) {
-                  if (isOptionCorrect) {
-                    btnClass = "bg-emerald-950/40 border-emerald-500/40 text-emerald-200";
-                    letterBackground = "bg-emerald-500 text-white";
+          {/* Choice Mode Option Buttons */}
+          {!isFillBlankMode ? (
+            <div className="space-y-3">
+              {currentChoice!.options.map((option, idx) => {
+                const letter = String.fromCharCode(65 + idx);
+                const isSelected = selectedAnswers[currentChoice.id] === idx;
+                const isOptionCorrect = idx === currentChoice.correctAnswer;
+                
+                let btnStyle = "border-white/10 hover:bg-white/5 text-slate-200 hover:border-slate-500";
+                let badgeStyle = "bg-white/10 text-slate-300 group-hover:bg-blue-500/20 group-hover:text-blue-300";
+                
+                if (isSelected) {
+                  if (submitted) {
+                    if (isOptionCorrect) {
+                      btnStyle = "bg-emerald-500/15 border-emerald-500/50 text-emerald-300 shadow-md";
+                      badgeStyle = "bg-emerald-500 text-white";
+                    } else {
+                      btnStyle = "bg-rose-500/15 border-rose-500/50 text-rose-300 shadow-md";
+                      badgeStyle = "bg-rose-500 text-white";
+                    }
                   } else {
-                    btnClass = "bg-rose-950/40 border-rose-500/40 text-rose-200";
-                    letterBackground = "bg-rose-500 text-white";
+                    btnStyle = "bg-blue-500/15 border-blue-500/50 text-blue-300 shadow-lg";
+                    badgeStyle = "bg-blue-500 text-white shadow";
                   }
-                } else {
-                  // Not submitted yet, just highlighted
-                  btnClass = "bg-blue-500/20 border-blue-500/40 text-blue-200 shadow-lg";
-                  letterBackground = "bg-blue-500 text-white";
+                } else if (submitted && isOptionCorrect) {
+                  btnStyle = "bg-emerald-500/10 border-emerald-500/30 text-emerald-300";
+                  badgeStyle = "bg-emerald-500 text-white";
                 }
-              } else if (submitted && isOptionCorrect) {
-                // Highlight correct answer if they picked wrong
-                btnClass = "bg-emerald-950/20 border-emerald-500/20 text-emerald-200";
-                letterBackground = "bg-emerald-500 text-white";
-              }
 
-              return (
-                <button
-                  key={idx}
-                  id={`opt-${currentQuestion.id}-${idx}`}
-                  onClick={() => handleSelectOption(idx)}
+                return (
+                  <button
+                    key={idx}
+                    id={`opt-${currentChoice.id}-${idx}`}
+                    onClick={() => handleSelectOption(idx)}
+                    disabled={submitted}
+                    className={`w-full text-left p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-3.5 group relative ${btnStyle}`}
+                  >
+                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-extrabold text-xs shrink-0 transition-colors ${badgeStyle}`}>
+                      {letter}
+                    </span>
+                    <span className="text-xs md:text-sm font-black leading-snug">{option}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            /* FillBlank Mode Input Form */
+            <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/10 space-y-4">
+              <label className="text-xs font-black text-indigo-300 block">请输入你的填空题解答内容：</label>
+              
+              <div className="relative">
+                <input
+                  type="text"
+                  value={currentBlankInput}
+                  onChange={(e) => setTypedAnswers(prev => ({ ...prev, [currentBlank!.id]: e.target.value }))}
+                  placeholder="在此写下答题词汇或规律符号（例如: 重力 或 4 等）"
                   disabled={submitted}
-                  className={`w-full text-left p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-3.5 group relative ${btnClass}`}
-                >
-                  <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${letterBackground}`}>
-                    {letter}
-                  </span>
-                  <span className="text-sm font-medium">{option}</span>
-                </button>
-              );
-            })}
-          </div>
+                  className="w-full p-4 pr-12 bg-white/5 border border-white/10 rounded-2xl focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm font-extrabold"
+                />
+                
+                {submitted && (
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                    {isBlankCorrect ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-rose-400" />
+                    )}
+                  </div>
+                )}
+              </div>
 
-          {/* Submit question action bar */}
+              {submitted && (
+                <div className="text-xs bg-indigo-500/5 p-3 rounded-xl border border-indigo-500/10 text-indigo-200 flex items-center gap-2">
+                  <Award className="w-4 h-4 text-amber-400 animate-pulse" />
+                  <span>参考标准答案：<strong className="text-white text-sm bg-indigo-500/20 px-2 py-0.5 rounded ml-1">{currentBlank!.correctAnswer}</strong></span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Action Row */}
           <div className="flex gap-3 justify-end pt-2">
             {!submitted ? (
               <button
-                id="q-submit-btn"
                 onClick={() => setSubmitted(true)}
-                disabled={!hasAnsweredCurrent}
-                className={`px-5 py-3 rounded-xl font-bold text-sm tracking-wide transition-all ${
-                  hasAnsweredCurrent
-                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white cursor-pointer shadow-lg"
+                disabled={isFillBlankMode ? !hasAnsweredBlank : !hasAnsweredChoice}
+                className={`px-6 py-3 rounded-xl font-bold text-xs tracking-wider transition-all select-none ${
+                  (isFillBlankMode ? hasAnsweredBlank : hasAnsweredChoice)
+                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white cursor-pointer shadow-lg active:scale-95"
                     : "bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed"
                 }`}
               >
-                提交此题并看解析
+                确认解答・提交此题
               </button>
             ) : (
               <button
-                id="q-next-btn"
                 onClick={handleNext}
-                className="px-6 py-3 bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98] transition-all rounded-xl font-bold text-sm tracking-wide shadow-lg flex items-center gap-1 cursor-pointer"
+                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-sky-500 text-slate-950 font-black hover:brightness-110 active:scale-[0.98] transition-all rounded-xl text-xs tracking-wider shadow-lg flex items-center gap-1 cursor-pointer"
               >
-                {isLastQuestion ? "提交试卷" : "下一道题"}
+                {isLastQuestion ? "完成测评并提交试卷 🏆" : "开始下一道题"}
                 <ChevronRight className="w-4 h-4" />
               </button>
             )}
@@ -293,88 +375,90 @@ export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }:
 
         </div>
 
-        {/* Right Panel: Solution, Formulas & AI Tutor Consultation (Col: 4) */}
-        <div className="md:col-span-4 bg-white/5 backdrop-blur-md p-6 flex flex-col justify-between border-l border-white/10">
+        {/* Right Panel: Teacher feedback and AI consultation (Col: 6) */}
+        <div className="md:col-span-6 bg-[#0c1322]/85 backdrop-blur-xl p-8 flex flex-col justify-between border-l border-white/10">
           <div className="space-y-6">
             {!submitted ? (
-              <div className="text-center py-12 px-4 space-y-3">
-                <div className="w-14 h-14 bg-white/5 text-slate-400 rounded-full flex items-center justify-center mx-auto border border-dashed border-white/10">
-                  <BookOpen className="w-6 h-6" />
+              <div className="text-center py-20 px-4 space-y-4">
+                <div className="w-16 h-16 bg-white/5 text-slate-400 rounded-full flex items-center justify-center mx-auto border border-dashed border-white/10">
+                  <BookOpen className="w-7 h-7 animate-pulse text-indigo-400" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-sm text-slate-200">智能解析与学科小贴士</h4>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                    选择选项提交之后，AI 老师的详尽知识点剖析、公式推导与深度白话解析都将在这里呈现，帮助您扫清认知盲点。
+                  <h4 className="font-extrabold text-sm text-slate-100 tracking-wider">智能解析全科黑板</h4>
+                  <p className="text-xs text-slate-400 mt-2 leading-relaxed max-w-sm mx-auto">
+                    只要针对左侧题目确认并点击提交解答，智能黑板报就会为您呈现名师的幽默学科计算、公式演练和记忆通关秘诀！
                   </p>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 animate-fade-in max-h-[420px] overflow-y-auto pr-1">
-                <div className="flex items-center gap-2 pb-2 border-b border-white/10">
-                  {isCorrect ? (
-                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-sm">
-                      <CheckCircle2 className="w-4 h-4" />
-                      极棒！你答对了
+              <div className="space-y-5 animate-fade-in max-h-[600px] overflow-y-auto pr-2 dataset-scrollbar">
+                
+                <div className="flex items-center gap-1.5 pb-2 border-b border-white/10">
+                  {(isFillBlankMode ? isBlankCorrect : isChoiceCorrect) ? (
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-xs">
+                      <CheckCircle2 className="w-4 h-4 animate-bounce" />
+                      太漂亮了！一箭穿心答对
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1.5 text-rose-400 font-bold text-sm">
-                      <XCircle className="w-4 h-4" />
-                      噢，不小心选错了
+                    <div className="flex items-center gap-1.5 text-rose-400 font-extrabold text-xs">
+                      <XCircle className="w-4 h-4 animate-flash" />
+                      哎呀，稍微偏了一点点
                     </div>
                   )}
                 </div>
 
                 <div className="space-y-1">
-                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">AI 老师黑板深度解答:</span>
-                  <p className="text-xs font-semibold text-slate-200 bg-white/5 p-3 rounded-xl border border-white/10 shadow-sm leading-relaxed">
-                    {currentQuestion.explanation}
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block">教师粉笔详析:</span>
+                  <p className="text-[11px] font-medium leading-relaxed text-slate-200 bg-white/5 p-3 rounded-xl border border-white/10 shadow-inner">
+                    {currentExplanation}
                   </p>
                 </div>
 
-                {/* AI Consult Portal */}
+                {/* AI Interactive Consultation Portal */}
                 <div className="pt-2 border-t border-white/10">
-                  <div className="flex items-center gap-1.5 text-blue-300 text-xs font-bold mb-2">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    还没看懂？咨询 AI 特级名师
+                  <div className="flex items-center gap-1 text-sky-300 text-[10px] font-black mb-2 uppercase tracking-wide">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                    追问 AI 特级教师：
                   </div>
 
-                  {aiAnswers[currentQuestion.id] ? (
-                    <div className="bg-blue-950/40 border border-blue-500/20 rounded-2xl p-3.5 text-xs mb-3 space-y-2 text-blue-100">
-                      <div className="flex items-center gap-1.5 font-bold text-blue-300">
+                  {aiAnswers[currentTutorKey] ? (
+                    <div className="bg-blue-950/40 border border-blue-500/20 rounded-2xl p-3.5 text-xs mb-3 space-y-2 text-slate-100">
+                      <div className="flex items-center gap-1.5 font-black text-sky-300">
                         <MessageCircle className="w-3.5 h-3.5" />
-                        AI 特级名师专属启发：
+                        AI 名师黑板报：
                       </div>
-                      <div className="text-slate-200 space-y-1">
-                        {renderSimpleMarkdown(aiAnswers[currentQuestion.id])}
+                      <div className="space-y-1">
+                        {renderSimpleMarkdown(aiAnswers[currentTutorKey])}
                       </div>
                       <button 
                         onClick={() => {
                           setAiAnswers(prev => {
                             const clone = { ...prev };
-                            delete clone[currentQuestion.id];
+                            delete clone[currentTutorKey];
                             return clone;
                           });
                         }}
-                        className="text-[10px] text-blue-300 hover:text-blue-200 font-medium cursor-pointer pt-1 block"
+                        className="text-[10px] text-sky-400 hover:text-sky-300 font-black cursor-pointer pt-1 block"
                       >
-                        重新提问
+                        我要追问其他疑问 ↩
                       </button>
                     </div>
                   ) : (
-                    <form onSubmit={handleConsultAi} className="space-y-2">
-                      <div className="relative">
-                        <textarea
-                          rows={2}
-                          value={childQuery}
-                          onChange={(e) => setChildQuery(e.target.value)}
-                          placeholder="例如: 老师，为什么长江里面的水比海水密度更低呢？或者是这道题算出的 37g 是怎么一步步除的？"
-                          className="w-full text-xs p-2.5 bg-white/5 border border-white/10 hover:border-white/20 focus:border-blue-500 rounded-xl focus:outline-none placeholder:text-slate-400 leading-relaxed font-medium text-white"
-                          disabled={consulting}
-                        />
-                      </div>
+                    <form onSubmit={handleConsultAi} className="space-y-3">
+                      <textarea
+                        rows={4}
+                        value={childQuery}
+                        onChange={(e) => setChildQuery(e.target.value)}
+                        placeholder="💡 可以输入您想追问AI名师的问题，例如：
+- 老师，能用更有趣的生活场景解释一下这道题吗？
+- 还有哪些类似的中考经典考点和防坑大招？
+- 这道题有什么秒杀口诀吗？"
+                        className="w-full text-xs p-3.5 bg-slate-950/80 border border-white/10 focus:border-indigo-505 rounded-xl focus:outline-none placeholder:text-slate-500 leading-relaxed font-semibold text-white focus:ring-1 focus:ring-indigo-500"
+                        disabled={consulting}
+                      />
                       
                       {consultError && (
-                        <div className="text-[10px] font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/25 p-2 rounded-lg text-center leading-normal">
+                        <div className="text-[10px] text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2 rounded-lg text-center font-bold">
                           ⚠️ {consultError}
                         </div>
                       )}
@@ -382,33 +466,34 @@ export default function QuizView({ quizData, videoTitle, onFinishQuiz, onBack }:
                       <button
                         type="submit"
                         disabled={consulting || !childQuery.trim()}
-                        className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                        className={`w-full py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-colors ${
                           childQuery.trim() && !consulting
-                            ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-lg"
+                            ? "bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow-lg active:scale-95"
                             : "bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed"
                         }`}
                       >
                         {consulting ? (
                           <>
                             <RefreshCw className="w-3 h-3 animate-spin" />
-                            AI 老师撰写生动解答中...
+                            名师撰写生动教案中...
                           </>
                         ) : (
                           <>
                             <MessageCircle className="w-3 h-3" />
-                            向 AI 老师发送疑问
+                            向 AI 发送疑问
                           </>
                         )}
                       </button>
                     </form>
                   )}
                 </div>
+
               </div>
             )}
           </div>
 
-          <div className="pt-4 border-t border-white/10 text-center text-[10px] text-slate-400 font-medium">
-            看视频做测评，掌握全科知识原来这么简单有趣 💡
+          <div className="pt-4 border-t border-white/10 text-center text-[10px] text-slate-400 font-extrabold tracking-wide uppercase">
+            玩转初中物理与全科，AI 老师陪你起飞 🚀
           </div>
         </div>
 

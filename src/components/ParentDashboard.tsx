@@ -490,11 +490,6 @@ export default function ParentDashboard({
                         <option value="chemistry">化学 🧪</option>
                         <option value="biology">生物 🧬</option>
                         <option value="other">综合科普 🧭</option>
-                        <option value="mechanics">【经典物理】力学</option>
-                        <option value="optics">【经典物理】光学</option>
-                        <option value="acoustics">【经典物理】声学</option>
-                        <option value="thermal">【经典物理】热学</option>
-                        <option value="electromagnetics">【经典物理】电磁学</option>
                       </select>
                     </div>
 
@@ -507,10 +502,9 @@ export default function ParentDashboard({
                         onChange={(e) => setSelectedGrade(e.target.value)}
                         className="w-full text-xs p-2 bg-slate-900 border border-white/10 rounded-lg focus:outline-none text-white focus:border-blue-500"
                       >
-                        <option value="小学科学">小学科学 (自然启蒙)</option>
-                        <option value="初中一年级">初中一年级 (光学/声学部分)</option>
-                        <option value="初中二年级">初中二年级 (力学重点突破)</option>
-                        <option value="初中三年级">初中三年级 (中考电学与热力学)</option>
+                        <option value="小学基础学情">小学阶段 (探科通识与学术综合发展)</option>
+                        <option value="初中同步学情">初中段同步 (重点高频核心各科考点评测)</option>
+                        <option value="中考冲刺考纲">中考冲刺层 (中高难度难关攻克与综合压轴)</option>
                       </select>
                     </div>
 

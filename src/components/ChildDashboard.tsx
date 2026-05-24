@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Tv, 
   Sparkles, 
@@ -17,7 +17,13 @@ import {
   Percent,
   Activity,
   FileText,
-  Brain
+  Brain,
+  Mic,
+  MicOff,
+  Check,
+  AlertCircle,
+  Trash2,
+  RefreshCw
 } from "lucide-react";
 import { BiliVideo, Medal, StudyRecord } from "../types";
 
@@ -45,6 +51,25 @@ export default function ChildDashboard({
   const [showFormulaTip, setShowFormulaTip] = useState<string | null>(null);
   const [cheatSheetSubject, setCheatSheetSubject] = useState<string>("chinese");
   const [activeTab, setActiveTab] = useState<"reading" | "eval">("reading");
+
+  // Voice and Text learning summary review states
+  const [summaryText, setSummaryText] = useState<string>("");
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [submittingReview, setSubmittingReview] = useState<boolean>(false);
+  const [reviewResult, setReviewResult] = useState<{
+    score: string;
+    feedback: string;
+    improvementSuggestions: string[];
+    keyKeywordsMastered: string[];
+    keyKeywordsMissing: string[];
+  } | null>(null);
+  const [voiceTip, setVoiceTip] = useState<string>("");
+
+  useEffect(() => {
+    setSummaryText("");
+    setReviewResult(null);
+    setVoiceTip("");
+  }, [selectedVideo?.id, activePartIndex]);
 
   const getSubjectIcon = (name: string) => {
     switch (name) {
@@ -188,7 +213,7 @@ export default function ChildDashboard({
           parts.push(trimmed.substring(lastIndex, match.index));
         }
         parts.push(
-          <strong key={match.index} className="text-amber-300 font-extrabold mx-0.5 underline decoration-amber-500/40">
+          <strong key={match.index} className="text-amber-305 font-extrabold mx-0.5 underline decoration-amber-500/40">
             {match[1]}
           </strong>
         );
@@ -215,12 +240,7 @@ export default function ChildDashboard({
     { id: "physics", name: "物理 ⚛️" },
     { id: "chemistry", name: "化学 🧪" },
     { id: "biology", name: "生物 🧬" },
-    { id: "other", name: "综合科普 🧭" },
-    { id: "mechanics", name: "力学 ⛵" },
-    { id: "optics", name: "光学 🌈" },
-    { id: "acoustics", name: "声学 📣" },
-    { id: "thermal", name: "热学 🌡" },
-    { id: "electromagnetics", name: "电磁学 ⚡" }
+    { id: "other", name: "综合科普 🧭" }
   ];
 
   const filteredVideos = activeCategory === "all"
@@ -232,14 +252,15 @@ export default function ChildDashboard({
       case "chinese": return { name: "语文", color: "bg-red-50 text-red-600 border border-red-100" };
       case "math": return { name: "数学", color: "bg-cyan-50 text-cyan-600 border border-cyan-100" };
       case "english": return { name: "英语", color: "bg-pink-50 text-pink-600 border border-pink-100" };
-      case "physics": return { name: "物理", color: "bg-blue-50 text-blue-600 border border-blue-100" };
+      case "physics": 
+      case "mechanics": 
+      case "optics": 
+      case "acoustics": 
+      case "thermal": 
+      case "electromagnetics": 
+        return { name: "物理", color: "bg-blue-50 text-blue-600 border border-blue-100" };
       case "chemistry": return { name: "化学", color: "bg-emerald-50 text-emerald-600 border border-emerald-100" };
       case "biology": return { name: "生物", color: "bg-indigo-50 text-indigo-600 border border-indigo-100" };
-      case "mechanics": return { name: "力学", color: "bg-blue-50 text-blue-600 border border-blue-100" };
-      case "optics": return { name: "光学", color: "bg-amber-50 text-amber-600 border border-amber-100" };
-      case "acoustics": return { name: "声学", color: "bg-teal-50 text-teal-600 border border-teal-100" };
-      case "thermal": return { name: "热学", color: "bg-orange-50 text-orange-600 border border-orange-100" };
-      case "electromagnetics": return { name: "电磁学", color: "bg-purple-50 text-purple-600 border border-purple-100" };
       default: return { name: "综合科普", color: "bg-slate-50 text-slate-600 border border-slate-100" };
     }
   };
@@ -342,6 +363,53 @@ export default function ChildDashboard({
           } finally {
             setGeneratingPartQuiz(false);
           }
+        };
+
+        const handleSimulateVoice = () => {
+          if (!selectedVideo) return;
+          setIsRecording(true);
+          setVoiceTip("🎙️ 正在实时收音中... 试着对着麦克风大声朗读你学到的物理或学科重点吧！");
+          
+          setTimeout(() => {
+            const pSummary = getPresetVoiceSummary(selectedVideo.category, selectedVideo.title);
+            setSummaryText(pSummary);
+            setIsRecording(false);
+            setVoiceTip("🎙️ 语音输入成功转译！您可以检查修改下面的内容并提交。");
+          }, 1800);
+        };
+
+        const handleReviewSummary = async () => {
+          if (!summaryText.trim() || !selectedVideo) return;
+          setSubmittingReview(true);
+          setVoiceTip("");
+          try {
+            const response = await fetch("/api/summary/review", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: selectedVideo.title,
+                category: selectedVideo.category,
+                summaryText: summaryText
+              })
+            });
+            const resJson = await response.json();
+            if (resJson.success && resJson.data) {
+              setReviewResult(resJson.data);
+            } else {
+              setVoiceTip("⚠️ 咨询名师时遇到了小故障，请重新提交一次噢。");
+            }
+          } catch (err) {
+            console.error(err);
+            setVoiceTip("⚠️ 连线AI特级名师失败，请刷新或稍后再试。");
+          } finally {
+            setSubmittingReview(false);
+          }
+        };
+
+        const handleResetReview = () => {
+          setSummaryText("");
+          setReviewResult(null);
+          setVoiceTip("");
         };
 
         return (
@@ -470,23 +538,23 @@ export default function ChildDashboard({
                     onClick={() => setActiveTab("reading")}
                     className={`pb-2.5 px-4 text-xs font-black tracking-wide cursor-pointer border-b-2 transition-all flex items-center gap-1.5 ${
                       activeTab === "reading"
-                        ? "border-amber-450 text-amber-400 font-black"
-                        : "border-transparent text-slate-400 hover:text-slate-200"
+                        ? "border-amber-450 text-amber-400 font-bold"
+                        : "border-transparent text-slate-400 hover:text-slate-205"
                     }`}
                   >
-                    <BookOpen className="w-3.5 h-3.5" />
-                    科普拓展趣味阅读 (适合初中生)
+                    <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+                    📖 拓展趣味精读
                   </button>
                   <button
                     onClick={() => setActiveTab("eval")}
                     className={`pb-2.5 px-4 text-xs font-black tracking-wide cursor-pointer border-b-2 transition-all flex items-center gap-1.5 ${
                       activeTab === "eval"
-                        ? "border-blue-450 text-blue-400 font-black"
-                        : "border-transparent text-slate-400 hover:text-slate-200"
+                        ? "border-indigo-450 text-indigo-400 font-bold"
+                        : "border-transparent text-slate-400 hover:text-slate-205"
                     }`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    核心公式与测评
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-455" />
+                    🎯 核心考点与脑力测评
                   </button>
                 </div>
 
@@ -581,21 +649,38 @@ export default function ChildDashboard({
                               {revCfg.title}
                             </h5>
                             {currentQuizData && currentQuizData.keyFormulas && currentQuizData.keyFormulas.length > 0 ? (
-                              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 dataset-scrollbar">
+                              <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1 dataset-scrollbar">
                                 {currentQuizData.keyFormulas.map((form, idx) => (
-                                  <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-4 flex justify-between items-center gap-4 hover:border-indigo-400/50 hover:bg-white/10 transition-all shadow-md">
-                                    <div className="space-y-1.5 flex-1 select-text">
-                                      <span className="text-sm md:text-base text-white font-extrabold block leading-snug">{form.name}</span>
-                                      <p className="text-xs md:text-sm text-slate-205 leading-relaxed font-normal">{form.desc}</p>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-1.5 shrink-0">
-                                      <span className="text-[9px] font-bold text-indigo-300 bg-indigo-500/15 border border-indigo-400/20 px-2 py-0.5 rounded uppercase">
+                                  <div key={idx} className="bg-white/5 border border-white/10 hover:border-indigo-500/30 rounded-2xl p-4.5 space-y-2.5 transition-all shadow-md">
+                                    <div className="flex justify-between items-start gap-3">
+                                      <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 flex items-center justify-center text-[10px] font-black shrink-0">
+                                          {idx + 1}
+                                        </span>
+                                        <span className="text-sm md:text-base text-slate-100 font-extrabold block leading-snug">
+                                          {form.name}
+                                        </span>
+                                      </div>
+                                      <span className="text-[9px] font-black text-indigo-305 bg-indigo-550/10 border border-indigo-400/20 px-2.5 py-0.5 rounded-lg uppercase tracking-wide shrink-0">
                                         {revCfg.badgeLabel}
                                       </span>
-                                      <span className="font-mono bg-indigo-500/20 border border-indigo-400/50 px-3.5 py-1.5 rounded-xl text-xs md:text-sm text-amber-200 font-extrabold tracking-wider shrink-0 shadow-md">
-                                        {form.expression}
-                                      </span>
                                     </div>
+                                    
+                                    <p className="text-xs md:text-sm text-slate-300 leading-relaxed font-normal pl-7">
+                                      {form.desc}
+                                    </p>
+
+                                    {form.expression && form.expression.trim().length > 0 && (
+                                      <div className="pl-7 pt-0.5">
+                                        <div className="inline-flex flex-wrap items-center gap-2 p-2 px-3 bg-slate-950/65 border border-white/5 rounded-xl text-xs md:text-sm text-amber-300 font-black tracking-wider shadow-inner font-mono">
+                                          <span className="text-[10px] text-slate-400 font-sans font-bold uppercase tracking-widest">核心/必考要点：</span>
+                                          <span className="text-amber-200 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">{form.expression}</span>
+                                          {form.unit && form.unit.trim().length > 0 && (
+                                            <span className="text-[10px] text-slate-500 font-sans">（主单位：{form.unit}）</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -636,6 +721,208 @@ export default function ChildDashboard({
                         );
                       })()}
                     </div>
+
+                    {/* NEW SECTION: Student Summary Review (Speech & Writing) */}
+                    <div className="bg-slate-950/70 border-2 border-slate-500/20 rounded-2xl p-6 space-y-4 text-left shadow-2xl mt-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/5">
+                        <div className="flex items-center gap-2">
+                          <Brain className="w-5 h-5 text-indigo-405 animate-pulse" />
+                          <div>
+                            <span className="text-sm md:text-base font-black text-white hover:text-indigo-300 transition-colors">
+                              📖 视频要点自主复述点评 (语音与文字总结)
+                            </span>
+                            <p className="text-[10px] text-slate-400">
+                              用你自己的白话说说视频讲了啥，不仅能加深记忆，AI特级名师还会立刻给你打分并批改！
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 text-right">
+                          <button
+                            onClick={handleSimulateVoice}
+                            disabled={isRecording || submittingReview}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-black flex items-center gap-1 cursor-pointer transition-all border ${
+                              isRecording
+                                ? "bg-red-500/20 text-red-350 border-red-500/40 animate-pulse"
+                                : "bg-white/5 text-indigo-300 border-indigo-500/30 hover:bg-white/10"
+                            }`}
+                          >
+                            {isRecording ? (
+                              <>
+                                <MicOff className="w-3.5 h-3.5" />
+                                正在模拟语音中...
+                              </>
+                            ) : (
+                              <>
+                                <Mic className="w-3.5 h-3.5 animate-bounce" />
+                                🎙️ 模拟语音输入重点
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Display warning or voice transcription status messages */}
+                      {voiceTip && (
+                        <div className={`p-2.5 rounded-xl border text-xs font-semibold animate-fade-in ${
+                          voiceTip.startsWith("⚠️")
+                            ? "bg-rose-500/10 text-rose-300 border-rose-500/25"
+                            : "bg-indigo-500/10 text-indigo-200 border-indigo-500/20"
+                        }`}>
+                          {voiceTip}
+                        </div>
+                      )}
+
+                      {!reviewResult ? (
+                        <div className="space-y-4">
+                          <textarea
+                            rows={4}
+                            value={summaryText}
+                            onChange={(e) => setSummaryText(e.target.value)}
+                            placeholder="请在这里写下本集主要的公式、要点、或者是探究小感悟（字数不限）。也可以模拟点击上方的「模拟语音输入」快速体验！"
+                            className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs md:text-sm font-semibold text-white placeholder:text-slate-500 leading-relaxed font-sans"
+                            disabled={submittingReview}
+                          />
+
+                          <div className="flex justify-end gap-2.5">
+                            {summaryText.trim().length > 0 && (
+                              <button
+                                onClick={() => setSummaryText("")}
+                                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+                              >
+                                清空
+                              </button>
+                            )}
+                            <button
+                              onClick={handleReviewSummary}
+                              disabled={submittingReview || !summaryText.trim()}
+                              className={`px-6 py-2.5 rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-1.5 ${
+                                summaryText.trim() && !submittingReview
+                                  ? "bg-gradient-to-r from-indigo-500 to-blue-600 hover:brightness-110 text-white cursor-pointer shadow-lg active:scale-[0.98]"
+                                  : "bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed"
+                              }`}
+                            >
+                              {submittingReview ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  名师批改中...
+                                </>
+                              ) : (
+                                "提交给名师批阅 🏆"
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* AI REVIEW RESULTS VISUAL REPORT */
+                        <div className="bg-slate-900/80 border border-white/10 rounded-2xl p-5 space-y-4 animate-fade-in">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/5">
+                            <span className="text-sm font-extrabold text-indigo-300 flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+                              AI 特级教师评估鉴定报告
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-400 font-bold">总结质量推荐等级：</span>
+                              <span className={`px-3.5 py-1 text-xs font-black rounded-lg uppercase tracking-wider ${
+                                reviewResult.score === "优秀"
+                                  ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                                  : reviewResult.score === "良好"
+                                  ? "bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                                  : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                              }`}>
+                                {reviewResult.score} {reviewResult.score === "优秀" ? "🏆" : "⭐"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 py-1 text-left">
+                            
+                            {/* Detailed Feedback (Col 7) */}
+                            <div className="md:col-span-7 bg-white/5 rounded-2xl p-4 border border-white/5 space-y-2">
+                              <span className="text-[10px] font-black tracking-widest text-[#a5b4fc] block uppercase">
+                                💬 专属名师评语点评：
+                              </span>
+                              <p className="text-xs text-slate-200 leading-relaxed font-semibold whitespace-pre-line select-text">
+                                {reviewResult.feedback}
+                              </p>
+                            </div>
+
+                            {/* Keywords / Mastery Analysis (Col 5) */}
+                            <div className="md:col-span-5 space-y-4">
+                              
+                              {/* Mastered scientific terms */}
+                              <div className="bg-emerald-950/20 border border-emerald-500/15 rounded-xl p-3.5 space-y-2">
+                                <span className="text-[10px] font-black tracking-widest text-emerald-400 flex items-center gap-1 uppercase">
+                                  <Check className="w-3.5 h-3.5 text-emerald-300" />
+                                  已正确掌握的概念:
+                                </span>
+                                {reviewResult.keyKeywordsMastered && reviewResult.keyKeywordsMastered.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {reviewResult.keyKeywordsMastered.map((term, i) => (
+                                      <span key={i} className="px-2 py-0.5 bg-emerald-500/15 text-emerald-300 text-[10px] font-bold rounded border border-emerald-500/25">
+                                        {term}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic font-medium block">暂无特定词条被特别锁定</span>
+                                )}
+                              </div>
+
+                              {/* Missing terms */}
+                              <div className="bg-amber-950/20 border border-amber-500/15 rounded-xl p-3.5 space-y-2">
+                                <span className="text-[10px] font-black tracking-widest text-amber-400 flex items-center gap-1 uppercase">
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                                  建议补充强化的领域/词汇:
+                                </span>
+                                {reviewResult.keyKeywordsMissing && reviewResult.keyKeywordsMissing.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {reviewResult.keyKeywordsMissing.map((term, i) => (
+                                      <span key={i} className="px-2 py-0.5 bg-amber-500/15 text-amber-300 text-[10px] font-bold rounded border border-amber-500/25">
+                                        {term}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-emerald-450 italic font-medium block">真了不起！全视频要点无一漏网！</span>
+                                )}
+                              </div>
+
+                            </div>
+                          </div>
+
+                          {/* Actionable Suggestions (Full width banner) */}
+                          {reviewResult.improvementSuggestions && reviewResult.improvementSuggestions.length > 0 && (
+                            <div className="bg-indigo-950/30 border border-indigo-500/20 text-indigo-200 rounded-xl p-4 text-left space-y-2">
+                              <span className="text-[10px] font-black tracking-widest text-[#a5b4fc] block uppercase">
+                                🛠️ 名师反馈改进建议（突出要点与加强领域）：
+                              </span>
+                              <ul className="space-y-1.5 list-none pl-0">
+                                {reviewResult.improvementSuggestions.map((step, i) => (
+                                  <li key={i} className="text-xs leading-relaxed font-semibold flex items-start gap-1.5 select-text text-indigo-100">
+                                    <span className="w-4 h-4 bg-indigo-500/30 text-indigo-300 rounded font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                                      {i + 1}
+                                    </span>
+                                    {step}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          <div className="flex justify-end pt-1">
+                            <button
+                              onClick={handleResetReview}
+                              className="px-5 py-2 bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 animate-pulse" />
+                              清除并重写作答
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </>
@@ -645,10 +932,11 @@ export default function ChildDashboard({
       })()}
 
       {/* MID SECTION: Videos Grid Filter Selector */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Left Column: Grid list of physics courses (Col: 8) */}
-        <div className="lg:col-span-8 space-y-5">
+      {!selectedVideo && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fade-in">
+          
+          {/* Left Column: Grid list of physics courses (Col: 8) */}
+          <div className="lg:col-span-8 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1.5 border-b border-white/10">
             <h3 className="font-extrabold text-slate-100 text-sm flex items-center gap-2">
               <Tv className="w-4 h-4 text-rose-400" />
@@ -811,7 +1099,7 @@ export default function ChildDashboard({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-100 text-sm tracking-tight">
-                    全科中考高分密码 & 学霸备考重难宝典
+                    全科中考高分密码 & 学霸备考重难宝典 ⚓
                   </h3>
                   <p className="text-[10px] text-slate-400">精挑细选高价值学科金句、常背公式、答题模板与避坑攻略</p>
                 </div>
@@ -853,24 +1141,38 @@ export default function ChildDashboard({
                   chinese: [
                     {
                       name: "修辞手法高分答题公式与模板 📝",
-                      formula: "修辞名称 + 具体内容 + 核心情感",
+                      formula: "修辞名称 + 具体内容 + 渲染效果 + 核心情感",
                       desc: "答题标准模版：本句使用了【XX】的修辞手法，生动形象地描摹了【对象】的【特征】，烘托/渲染了【画面/气氛】，从而深刻升华了作者对【对象】的【何种思想感情】。",
-                      trap: "⚠️ 提分警示：绝不能一笔带过写‘生动形象’！一定要紧密结合句中的动词/形容词，说出渲染了什么情调、蕴含了作者怎样的赞美或忧愤。",
+                      trap: "⚠️ 提分警示：绝不能一笔带过地干瘪写出‘生动形象’四个字！一定要紧密结合句中的动词/形容词，说出渲染了什么物理或情感层面的情调、蕴含了作者怎样的赞美或忧愤。",
                       badge: "现代文阅读常客"
                     },
                     {
                       name: "文言文实词活用快速识别 📚",
-                      formula: "名词处在谓语位 => 活用作动词",
-                      desc: "如果一个名词后紧跟代词或者名词宾语，或者前面被副词/能愿动词修饰，该名词则活用为动词。例如《出师表》‘一狼洞其中’中‘洞’意为‘挖洞’。",
-                      trap: "⚠️ 典型失分项：生搬硬套现代语意。翻译活用词时，先判明词性转换（名词作动词、形容词作动词等），再准确顺畅译出其动作意图。",
+                      formula: "名词处在主谓宾的谓语位 => 活用作动词",
+                      desc: "如果一个名词后紧跟代词或者名词宾语，或者前面直接被副词、能愿动词修饰，该名词则活用为动词。例如《出师表》‘一狼洞其中’中‘洞’意为‘挖洞’，‘蹄之’意为‘用蹄子踢’。",
+                      trap: "⚠️ 典型失分项：生搬硬套现代语意。翻译文言文活用词时，先判明词性转换（如名词作动词、意动、使动等），再准确顺畅译出其动作意图，万不可直接翻译成名词名词连用。",
                       badge: "文言文重难点"
                     },
                     {
                       name: "古典诗歌意境概括三步法 🌸",
                       formula: "描绘画面 + 归纳情调 + 点明主旨",
-                      desc: "步骤：1. 用自己的话生动描摹诗中的意象与特写画面；2. 用‘清新明丽’‘雄浑悲壮’‘萧瑟凄凉’等专属词汇提炼意境；3. 结合贬谪、报国、忆友等剖析诗人的心境。",
-                      trap: "⚠️ 备考技巧：重点关注诗歌最后两句（绝句的转折，律诗的尾联），那往往是诗人借景抒情、卒章显志的灵魂所在，不可漏答情感落脚点。",
-                      badge: "考前必看"
+                      desc: "步骤：1. 用自己的话生动描摹诗中的意象与特写画面；2. 用‘清新明丽’‘雄浑悲壮’‘萧瑟凄凉’等古风专属词汇提炼意境；3. 结合贬谪、报国、忆友等剖析诗人的心境。",
+                      trap: "⚠️ 备考技巧：重点关注诗歌最后两句（绝句的转折，律诗的尾联），那往往是诗人借景抒情、卒章显志的灵魂所在，绝不可漏答情感落脚点。",
+                      badge: "诗歌鉴赏捷径"
+                    },
+                    {
+                      name: "小说/散文‘线索与结构’梳理秘籍 🧭",
+                      formula: "寻找高频物象 / 时间推移 / 情感跃迁",
+                      desc: "文学阅读中结构的作用有：承上启下、铺垫、伏笔、设置悬念、点题。线索则是贯穿全文的脉络（如一件特定物品、一个核心事件或感情起伏）。",
+                      trap: "⚠️ 考场雷区：注意线索通常在文章标题、开头结尾或者反复出现的中心实体句中暗示。分析第一段作用时不仅有引起阅读兴趣，还要有‘统领全文、引出下文’的结构功能分。",
+                      badge: "结构梳理必备"
+                    },
+                    {
+                      name: "综合性学习与口语交际高分技巧 💬",
+                      formula: "称呼礼貌 + 委婉建议 + 阐述利弊 + 道谢离退",
+                      desc: "考查日常交际能力。例如劝说同学、拒绝无理要求或者在社会活动中进行发言。必须时刻维持谦逊得体的话语风格，并用严密的因果论据支持论断。",
+                      trap: "⚠️ 丢分点：经常忘记在开头加上合适的尊称（如‘阿姨您好’，‘组长，我可以...’），以及忘记在后文收束时加上谢谢。拒绝他人时切勿粗暴，必须先肯定对方，再委婉列叙困难。",
+                      badge: "表达交流满分"
                     }
                   ],
                   math: [
@@ -894,6 +1196,20 @@ export default function ChildDashboard({
                       desc: "双曲线上任意一点 P(x, y) 向两坐标轴作垂线，所围成的直角矩形面积恒等于比例系数的绝对值 |k|。该特殊量常在解析几何与动点结合时作为突破点。",
                       trap: "⚠️ 踩雷提醒：求面积时一定要加上绝对值符号！当双曲线分布在第二、四象限时 k 是负数，但面积数值是正数，需变号写下正值。",
                       badge: "代数压轴常客"
+                    },
+                    {
+                      name: "二次函数最值在实际利润问题应用 💰",
+                      formula: "y = ax² + bx + c  => 最值点 x = -b / 2a",
+                      desc: "初中数学超级重磅压轴题意，比如‘设定最大盈利售价’。将营业利润 y 表达为售价 x 的代数表达式，通过配方或对称轴公式确定在何种价位下能稳赚暴利。",
+                      trap: "⚠️ 夺分细节：最易遗漏‘自变量 x 的实际取值范围’限制（比如售价不能低于进价、或者库存有限制），必须解出相应的不等式组核定定义域，否则套对称轴取不到而扣分。",
+                      badge: "商业利润绝活"
+                    },
+                    {
+                      name: "相似三角形判定与对应比例相似代数 📐",
+                      formula: "AA, SAS, SSS 判定法 => 对应边比值成恒等比例",
+                      desc: "中考几何动点压轴题的核心轮子。只要能判定两个三角形相似，就可以直接列出比例式‘AB/DE = BC/EF = AC/DF’进行复杂未知线段的大跨度参数化变数换算。",
+                      trap: "⚠️ 排雷诀窍：写相似三角形表示时，顶点的字母顺序必须【严格一一对应对应】，如△ABC∽△DEF，对应字母写错的话，对应边的比例完全倒乱，计算直接崩盘！",
+                      badge: "几何第一巨头"
                     }
                   ],
                   english: [
@@ -908,7 +1224,7 @@ export default function ChildDashboard({
                       name: "宾语从句时态呼应与语序密码 💬",
                       formula: "主过从过 + 极客陈述语序",
                       desc: "宾语从句三法则：1. 语序永远用陈述代词顺（主语在谓语前）；2. 主句是一般过去时，从句也必须用过去相关的时态；3. 但如果从句表达的是客观真理、常识物理规律，一律坚持‘一般现在时’！",
-                      trap: "⚠️ 口语纠偏：千万记得在做句型转换时，手动把助动词 do, does, did 去掉，让疑问句变回老老实实的陈述顺序！例如：一律说 Do you know what his name is? 而非 on his name is it.",
+                      trap: "⚠️ 口语纠偏：千万记得在做句型转换时，手动把助动词 do, does, did 去掉，让疑问句变回老老实实的陈述顺序！例如：一律说 Do you know what his name is? 而非 Do you know what is his name.",
                       badge: "中考压轴选择"
                     },
                     {
@@ -917,6 +1233,20 @@ export default function ChildDashboard({
                       desc: "定语从句先行词指物用 which/that，指人用 who/whom/that。但当介词直接置于关系代词前时（如 in which, with whom），指物只用 which，指人只用 whom，严禁写 that！",
                       trap: "⚠️ 闪电提分：记住只能用 that 的情况：1. 先行词前有 only, any, last, maximum, much, little 修饰时；2. 先行词既有人又有物时。此时切不可用 which 混淆词义。",
                       badge: "高级句法"
+                    },
+                    {
+                      name: "完形填空语境情感逻辑锁 🗝️",
+                      formula: "上下文代换 + 关联代词 + 情感褒贬呼应",
+                      desc: "完形填空绝不是死背单词，而是利用文章的情感倾向及线索。空处所填的代词或副词，通常在往上或往下三行内就藏有同义词、反义词代换！",
+                      trap: "⚠️ 做题大法：不要看一个填一个。先用50秒粗读整篇，圈出故事的主线以及作者的情绪转折（如从sad到excited）。遇到犹豫的空格，做好标记往后读，下文的细节总在不经意间交代了空处答案！",
+                      badge: "提分首推"
+                    },
+                    {
+                      name: "书面表达高分加分经典代换 ✍️",
+                      formula: "用高级结构与闪光过渡连词点亮作文",
+                      desc: "小作文如何摆脱平庸的流水账？通过高级代换把普通的‘初级句式’变为让阅卷老师拍案交绝的‘学霸金句’！",
+                      trap: "⚠️ 提分实操：1. 表开头时用 'As far as I am concerned' 代替 'I think'。2. 表递进用 'In addition / What's more' 代替 'and'。3. 永远不要用 very, 换成 'extremely / unbelievably'，瞬间拉高质感。",
+                      badge: "考前核心备忘"
                     }
                   ],
                   physics: [
@@ -924,7 +1254,7 @@ export default function ChildDashboard({
                       name: "固体压强计算与受力面积判定 ⛵",
                       formula: "p = F / S",
                       desc: "固体压强等于垂直压力与接触受力面积之比。压力大小由直接垂直接触力的强弱决定，并不是所有竖直压下的情况均等于重力物质量。",
-                      trap: "⚠️ 错题黑洞：受力面积 S 指的是【两个物体发生挤压的实际公共部分面积】！例如一个面积为 1m² 的大箱子放在 0.1m² 的小凳上，受力面积 S 只能取 0.1m²（凳子面积），而非大箱子总底面积！别忘了换算成国际单位 m²。",
+                      trap: "⚠️ 错题黑洞：受力面积 S 指指的是【两个物体发生挤压的实际公共部分面积】！例如一个面积为 1m² 的大箱子放在 0.1m² 的小凳上，受力面积 S 只能取 0.1m²（凳子面积），而非大箱子总底面积！别忘了换算成国际单位 m²。",
                       badge: "压轴大关"
                     },
                     {
@@ -938,8 +1268,22 @@ export default function ChildDashboard({
                       name: "经典欧姆定律与电路断路故障排查 🔌",
                       formula: "I = U / R",
                       desc: "同一条金属并联/串联导体电路中，通过的电流量与该段两端所加电压大小成正比，与其内含电阻成反比。常借助可变滑动变阻器在合理挡位滑移调整定值两端电压。",
-                      trap: "⚠️ 家常速判：1. 串联电路特点分压（电阻越大分得电压越大：U1/U2 = R1/R2）；2. 并联电路特点分流（电阻越大分得流越小：I1/I2 = R2/R1）。如果电压表示数接近电源电压数而电流表为零，百分之九十是其并联位置的电器阻值发生了【开路断路】故障！",
+                      trap: "⚠️ 家常速判：1. 串联电路特点分压（电阻越大分得电压越大：U1/U2 = R1/R2）；2. 并联电路特点分流（电阻越大分得流越小：I1/I2 = R2/R1）。如果电压表示数接近电源电压数而电流表为零，百分之九十是其并联位置 of... 发生【开路断路】故障！",
                       badge: "电学难点"
+                    },
+                    {
+                      name: "电功率推导与家庭用电超载火花 ⚡",
+                      formula: "P = UI | 焦耳热 P = I²R",
+                      desc: "电功率是反映消耗能量快慢的指标。纯电阻中P可以直接换算，电热毯、电热水器这类热损耗器材，采用I²R能快速锁定温升变化。",
+                      trap: "⚠️ 故障防范：家庭电路中空气开关发生自动‘跳闸跳断’的根本原因：一是由于‘某一处发生了致命短路故障’，二是‘同时开启动了超大总功率的热负荷电器，导致电流超载过载保护’。",
+                      badge: "电功率压轴"
+                    },
+                    {
+                      name: "凸透镜成像规律及眼睛近视视力矫正 👓",
+                      formula: "u > 2f => 成倒立、缩小的实像 (照相机)",
+                      desc: "理解凸透镜在不同物距下的折射关系（一倍焦距分虚实、二倍焦距分大小）。近视眼是由于晶状体太厚或睫状肌松弛导致成像偏到视网膜‘前方’。",
+                      trap: "⚠️ 提分大招：近视眼一定要配戴【凹透镜】来进行光线发散矫正，而老花眼/远视眼配戴【凸透镜】汇聚镜。实验中，若是成实像，当晶状体靠近透镜，像必然远离并变大！",
+                      badge: "声光学必背"
                     }
                   ],
                   chemistry: [
@@ -963,6 +1307,20 @@ export default function ChildDashboard({
                       desc: "中考常考难溶杂质分离或无色混浊液离子鉴别。快速了解什么酸可以和什么金属/碱反应放出白色烟沫。",
                       trap: "⚠️ 重点铭记：硫酸钡(BaSO₄) 和 氯化银(AgCl) 是溶解性表中的‘绝绝子二人组’，它们既不溶解于温水，也【不与任何强酸（如稀硝酸）发生消解反应】。在推断题中，如果加入稀硝酸依然保留大团白色沉淀，必定由它们构成！",
                       badge: "必背大表"
+                    },
+                    {
+                      name: "燃烧三大条件与火灾自救的化学密码 🧯",
+                      formula: "可燃物 + 充足氧气 + 温度到达着火点",
+                      desc: "探究燃烧的本质。灭火策略本质上就是精准打断这三项条件的任何一项：比如用二氧化碳窒息覆隔离、或者向森林砍伐隔离带。",
+                      trap: "⚠️ 科学误区：100%注意：‘着火点’是原生物质本身的固有物理性质，化学灭火方法只能降低现场周围的实际‘温度’，绝没有任何药水能改变或降低物体自身的‘着火点’，千万别写错！",
+                      badge: "实验常识"
+                    },
+                    {
+                      name: "气体纯净洗涤与复杂杂质过滤 🌫️",
+                      formula: "洗气瓶‘长进短出’ | 吸水剂‘前干后检’",
+                      desc: "干燥除去氧气、氢气、二氧化碳中的杂质气体。例如使用浓硫酸吸附水蒸汽，用澄清石灰水鉴定并吸出多余的二氧化碳气体。",
+                      trap: "⚠️ 典型翻车：洗气导管进入洗气瓶时，必须保证进气的一端‘深插浸入’液体中，而出气的一截‘浅露在瓶塞上方（短出）’，如果不小心插反，里面腐蚀性的浓硫酸液体会直接被强大压力高压喷射出来，当场发生危险！",
+                      badge: "科学实验排雷"
                     }
                   ],
                   biology: [
@@ -986,9 +1344,23 @@ export default function ChildDashboard({
                       desc: "展现生态圈内部由吃和被吃串造成的能流物质链条。起点必定是自主光合的绿色‘生产者’，到最高统治捕食者终结。",
                       trap: "⚠️ 纸面致命失分：1. 食物链里【永远不要】画上非生物成分（如阳光、死叶、石头、水滴等环境成分），也【万万不可】包含细菌真菌等分解者成分！2. 箭头的朝向必须是由‘被捕食盘中餐’指向‘捕食享用人’，因为是指示营养物流的去向！",
                       badge: "生态大题"
+                    },
+                    {
+                      name: "动植物细胞区分及细胞核控制轮 🧫",
+                      formula: "植物细胞含细胞壁/液泡/叶绿体 | 动物细胞无",
+                      desc: "区别生命的两大基石细胞形态。‘细胞核’是细胞的遗传信息库和生命控制中心，克隆羊‘多莉’的身世充分印证了遗传特征是由提取出来细胞核的那个母体决定的。",
+                      trap: "⚠️ 概念雷区：叶绿体绝非存在于所有植物细胞中！植物的根部细胞（如洋葱表皮、地下红薯块根）在深埋土壤中因为没有光合作用，所以【并没有任何叶绿体存在】，审题时切勿以为是绿植就勾选叶绿体。",
+                      badge: "基础高频点"
+                    },
+                    {
+                      name: "人体双动力血液循环流动路径 🩸",
+                      formula: "体循环 (左心室->主动脉) | 肺循环 (右心室->肺动脉)",
+                      desc: "人体动脉血与静脉血在心脏泵送下的高效交换。体循环把心室流出的含氧富氧动脉血派送到全身周身细微器官；肺循环则通过肺部呼吸将暗红的静脉血脱碳吸氧变成鲜红的动脉血。",
+                      trap: "⚠️ 防错神器：‘左心房/左心室’流淌的必须全都是富含纯净氧气的【鲜红动脉血】，而‘右心房/右心室’流的则全都是暗红【静脉血】（口诀：左动右静）。另外：肺动脉里流的是静脉血，肺静脉里流的却是动脉血！",
+                      badge: "人体生理难点"
                     }
                   ]
-                };
+};
 
                 const currentSubjectDeck = cheatSheetData[cheatSheetSubject] || [];
                 return currentSubjectDeck.map((item, idx) => {
@@ -1067,8 +1439,33 @@ export default function ChildDashboard({
           </div>
 
         </div>
-
       </div>
+    )}
+
     </div>
   );
 }
+
+const getPresetVoiceSummary = (category: string, title: string) => {
+  const norm = category ? category.toLowerCase() : "";
+  switch (norm) {
+    case "chinese":
+      return `在这节语文微课《${title}》里，我学到了很多常考字词的拼音和义项。比如古诗词里经常出现的‘炼字’技巧，作者是用生动的景物描写来寄托内心的宏伟心愿（也就是借景抒情与托物言志）。老师教我们要抓住词语在语境里的细微差异。`;
+    case "math":
+      return `在这堂数学探究课《${title}》中，重点讲解了勾股定理。平面直角三角形的三边公式是两直角边的平方和等于斜边的平方，也就是 a的平方加b的平方等于c的平方，这个比例在受力支撑里应用可广了。而且三角形是最坚固、不可变形的‘稳定性’结构，工地上各种三角形钢架都是利用了这个数学性质。`;
+    case "english":
+      return `In this English class "${title}", we learned about the Present Perfect tense, which uses "have or has plus past participle" to show that something finished in the past still has an effect on the current situation. We also learned polite phrases like "Could you please help me".`;
+    case "chemistry":
+      return `在这堂化学实验课《${title}》里，我看到了水通电电解生成氢气和氧气的过程，它们在产生的气体体积比约为二比一。而且化学变化中必须要百分之百符合拉瓦锡提出的质量守恒定律，也就说反应前后分子的组合拆散重组了，但是原子数量、种类和一粒重量都没有增加或耗损。`;
+    case "biology":
+      return `在今天《${title}》这一节学科学堂中，我知道了太阳是地球万物生长的底座能力源泉。绿色植物是通过有意思的叶绿体，将空气二氧化碳和水配制在一块，经过光合作用变成了淀粉养料，并吐出了我们生命需要的氧气，大自然真的很奇妙。`;
+    case "physics":
+    case "mechanics":
+    case "optics":
+    case "acoustics":
+    case "thermal":
+    case "electromagnetics":
+    default:
+      return `在这堂物理课《${title}》中，我们学到力的相互作用原理——比如游泳向后拨水反动力把我推前，还有在暴风雨中光的最高速度比声音速度快几百万倍，因而总是先看到刺眼闪电、随之好几秒后才听闷雷响。`;
+  }
+};

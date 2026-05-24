@@ -263,7 +263,7 @@ export default function App() {
 
       {/* GLOBAL HIGH-CONTRAST MAIN APPLICATION HEADER CONTAINER */}
       <header className="relative z-10 border-b border-white/10 backdrop-blur-md bg-white/5 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           
           {/* Decorative Logo / Brand block */}
           <div className="flex items-center gap-3">
@@ -328,7 +328,7 @@ export default function App() {
       {/* RENDER DYNAMIC NAVIGATION UNDER-BAR SPECIFICALLY FOR ACTIONS IN STUDENT MODE */}
       {profile === "student" && !activeQuizVideo && (
         <div className="relative z-10 border-b border-white/10 backdrop-blur-md bg-white/5">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-6">
+          <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 flex gap-6">
             <button
               id="subtab-cinema"
               onClick={() => setStudentTab("cinema")}
@@ -361,7 +361,7 @@ export default function App() {
       )}
 
       {/* CORE WRAPPED BODY VIEWPORT */}
-      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="relative z-10 flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
         {/* VIEW 1: Active testing session take questionnaire */}
         {activeQuizVideo && activeQuizVideo.quizData ? (
@@ -535,7 +535,7 @@ export default function App() {
 
       {/* Standard visual humble footer */}
       <footer className="relative z-10 border-t border-white/5 backdrop-blur-md bg-slate-900/80 py-4 text-center text-[10px] text-slate-400 uppercase tracking-widest mt-auto">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+        <div className="max-w-[1600px] mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
           <span>Session: BiliStudy_K12_FullSubject | AI Engine: Learning-Pulse-v3</span>
           <span>BiliStudy 智能全科AI学习与测评助手 | Designed for Student Learning Excellence ⚓</span>
         </div>
