@@ -59,13 +59,17 @@ app.get("/api/bilibili/info", async (req, res) => {
         targetUrl = "https://" + targetUrl;
       }
       
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1800);
       const redirectRes = await fetch(targetUrl, {
         method: "GET",
         redirect: "follow",
+        signal: controller.signal,
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
       });
+      clearTimeout(timeoutId);
       if (redirectRes.url) {
         videoUrl = redirectRes.url;
       }
@@ -81,16 +85,24 @@ app.get("/api/bilibili/info", async (req, res) => {
     });
   }
 
+  const apiController = new AbortController();
+  const apiTimeoutId = setTimeout(() => apiController.abort(), 2000);
+
   try {
     const targetUrl = idInfo.type === "bvid" 
       ? `https://api.bilibili.com/x/web-interface/view?bvid=${idInfo.id}` 
       : `https://api.bilibili.com/x/web-interface/view?aid=${idInfo.id}`;
 
     const response = await fetch(targetUrl, {
+      signal: apiController.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.bilibili.com"
       }
     });
+
+    clearTimeout(apiTimeoutId);
 
     if (!response.ok) {
       throw new Error(`Bilibili API returned status ${response.status}`);
@@ -116,21 +128,34 @@ app.get("/api/bilibili/info", async (req, res) => {
         })) : []
       });
     } else {
+      // Fallback response with success: true and isFallback: true so parent can edit title/desc manually
       return res.json({
-        success: false,
+        success: true,
         bvid: idInfo.type === "bvid" ? idInfo.id : null,
-        error: json.message || "未能获取视频详情，可能存在地区或版权限制",
-        title: `视频学习单元: ${idInfo.id}`,
-        description: "由于外部接口限制，未能自动解析视频简介。不过您依然可以通过该视频知识点智能生成测试题目！"
+        aid: idInfo.type === "aid" ? idInfo.id : null,
+        title: `B站自定视频 (${idInfo.id})`,
+        description: "未能拉取到视频简介（可能面临版权或境外接口访问限制）。您支持直接在此卡片中对标题和学习侧重点进行自定义编辑！",
+        pic: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop",
+        duration: 360,
+        owner: "B站学习视频",
+        isFallback: true,
+        pages: []
       });
     }
   } catch (error: any) {
+    clearTimeout(apiTimeoutId);
+    console.error("Bilibili API fetch failed, using fallback:", error.message || error);
     return res.json({
-      success: false,
+      success: true,
       bvid: idInfo.type === "bvid" ? idInfo.id : null,
-      error: error.message || "请求服务器获取Bilibili接口失败",
-      title: `Bilibili 视频单元 (${idInfo.id})`,
-      description: "网络故障或解析接口限制，未能完全拉取视频详情。但您可以直接基于主题继续进行AI生成测评！"
+      aid: idInfo.type === "aid" ? idInfo.id : null,
+      title: `B站自定视频 (${idInfo.id})`,
+      description: "受限由于服务器网络代理位置，已采用本地自适应方案。点击视频卡片标题，即可在此编辑你要考察孩子的内容简介！",
+      pic: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop",
+      duration: 360,
+      owner: "B站自备视频",
+      isFallback: true,
+      pages: []
     });
   }
 });

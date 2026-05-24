@@ -162,21 +162,60 @@ export default function ParentDashboard({
     setFetchingInfo(true);
     setRetrievedVideo(null);
     setGuessedCategory(null);
+
+    const extractBilibiliIdClient = (url: string) => {
+      const bvRegex = /(BV[a-zA-Z0-9]{10})/i;
+      const avRegex = /(av[0-9]+)/i;
+      const bvMatch = url.match(bvRegex);
+      if (bvMatch) return { type: "bvid", id: bvMatch[1] };
+      const avMatch = url.match(avRegex);
+      if (avMatch) return { type: "aid", id: avMatch[1].replace(/av/i, "") };
+      return null;
+    };
+
     try {
       const response = await fetch(`/api/bilibili/info?url=${encodeURIComponent(biliUrl)}`);
+      if (!response.ok) {
+        throw new Error("HTTP status " + response.status);
+      }
       const data = await response.json();
       if (data.bvid || data.success) {
         setRetrievedVideo(data);
         const guessed = guessCategory(data.title || "", data.description || "");
         setSelectedCategory(guessed);
         setGuessedCategory(guessed);
-        showToast("成功获取视频并且已智能判断对应学科学术归属，请检查和构建AI评测！", "success");
+        if (data.isFallback) {
+          showToast("⚠️ 网络受限已自适应代理！请在下方编辑卡片自定义此视频标题与考察重点。", "info");
+        } else {
+          showToast("成功获取视频并且已智能判断对应学科学术归属，请检查和构建AI评测！", "success");
+        }
       } else {
-        showToast(data.error || "获取视频资料失败，建议重新核对URL或BVID", "error");
+        throw new Error(data.error || "获取视频资料失败");
       }
     } catch (err: any) {
-      console.error(err);
-      showToast("无法建立连接，请求B站详情解析出错。", "error");
+      console.error("Fetch Bilibili info failed, running local parser fallback:", err);
+      const idInfo = extractBilibiliIdClient(biliUrl);
+      if (idInfo) {
+        const fallbackData = {
+          success: true,
+          bvid: idInfo.type === "bvid" ? idInfo.id : null,
+          aid: idInfo.type === "aid" ? idInfo.id : null,
+          title: `B站自定视频单元 (${idInfo.id})`,
+          description: "未能自动拉取B站视频简介（受限于部署主机的境外网络环境限制）。您可在下方预览框中直接点击修改视频名称，并一键启动智能出卷！",
+          pic: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop",
+          duration: 360,
+          owner: "B站学习视频",
+          isFallback: true,
+          pages: []
+        };
+        setRetrievedVideo(fallbackData);
+        const guessed = guessCategory(biliUrl, "");
+        setSelectedCategory(guessed || "physics");
+        setGuessedCategory(guessed || "physics");
+        showToast("⚠️ 已自适应启用本地安全加载器，成功捕获视频ID。您可在此自定义主讲课题名称并生成考卷！", "info");
+      } else {
+        showToast("无法解析该视频链接。请确保链接中包含正确的BV或av号，或复制App短链接。", "error");
+      }
     } finally {
       setFetchingInfo(false);
     }
@@ -447,14 +486,40 @@ export default function ParentDashboard({
                       className="w-24 h-16 object-cover rounded-xl border border-white/10 flex-shrink-0 bg-slate-800"
                     />
                   )}
-                  <div className="space-y-1 min-w-0">
-                    <span className="text-[10px] bg-rose-500/25 text-rose-300 border border-rose-500/20 px-2 py-0.5 rounded-md font-bold uppercase">
-                      Bilibili 信息已捕获
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <span className="text-[10px] bg-rose-500/25 text-rose-300 border border-rose-500/20 px-2 py-0.5 rounded-md font-bold uppercase inline-block mb-1">
+                      {retrievedVideo.isFallback ? "⚠️ B站网络自适应备用模式" : "Bilibili 信息已捕获"}
                     </span>
-                    <h4 className="font-bold text-xs text-slate-100 leading-snug truncate">{retrievedVideo.title}</h4>
-                    <p className="text-[11px] text-slate-350 font-medium truncate">UP主: {retrievedVideo.owner || "未知"} | 时长: {Math.round((retrievedVideo.duration || 120) / 60)} 分钟</p>
+                    {retrievedVideo.isFallback ? (
+                      <div className="space-y-2 mt-1">
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-bold block mb-0.5">自定视频标题：</label>
+                          <input
+                            type="text"
+                            value={retrievedVideo.title || ""}
+                            onChange={(e) => setRetrievedVideo({ ...retrievedVideo, title: e.target.value })}
+                            className="w-full text-xs px-2.5 py-1.5 bg-slate-900 border border-white/20 hover:border-white/30 focus:border-rose-500 rounded-lg focus:outline-none text-white font-medium"
+                            placeholder="例如：物理 凸透镜成像规律"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-bold block mb-0.5">自定考察知识重点（AI智能自适应出题）：</label>
+                          <textarea
+                            value={retrievedVideo.description || ""}
+                            onChange={(e) => setRetrievedVideo({ ...retrievedVideo, description: e.target.value })}
+                            className="w-full text-xs px-2.5 py-1.5 bg-slate-900 border border-white/20 hover:border-white/30 focus:border-rose-500 rounded-lg focus:outline-none text-white h-16 resize-none font-medium"
+                            placeholder="输入你想考察学生的知识点或简介。例如：凸透镜成像实验规律，一倍焦距分虚实..."
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <h4 className="font-bold text-xs text-slate-100 leading-snug truncate">{retrievedVideo.title}</h4>
+                        <p className="text-[11px] text-slate-350 font-medium truncate">UP主: {retrievedVideo.owner || "未知"} | 时长: {Math.round((retrievedVideo.duration || 120) / 60)} 分钟</p>
+                      </>
+                    )}
                     {retrievedVideo.pages && retrievedVideo.pages.length > 1 && (
-                      <span className="inline-block text-[10px] bg-sky-500/25 text-sky-200 border border-sky-500/35 px-2 py-0.5 rounded font-black tracking-wide">
+                      <span className="inline-block text-[10px] bg-sky-500/25 text-sky-200 border border-sky-500/35 px-2 py-0.5 rounded font-black tracking-wide mt-1">
                         📚 包含 {retrievedVideo.pages.length} 集视频合集
                       </span>
                     )}
