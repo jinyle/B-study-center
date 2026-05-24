@@ -1,0 +1,6 @@
+{
+  "name": "BiliStudy 智能全科AI学习与测评助手",
+  "description": "一个帮助中小学生进行跨学科视频学习和学习成果测评的高效工具。支持语文、数学、英语、物理、化学、生物等多学科内容。支持导入B站视频并智能提取核心知识、生成个性化测评与拓展阅读，并为家长提供精细化的全科成长分析报告。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
