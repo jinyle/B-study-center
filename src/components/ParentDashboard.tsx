@@ -323,12 +323,16 @@ export default function ParentDashboard({
         // Clear forms
         setBiliUrl("");
         setRetrievedVideo(null);
-        showToast(
-          hasParts 
-            ? `🎉 学习大纲《${retrievedVideo.title}》已成功导入为合集视频！第一集测评和阅读材料已就绪。`
-            : `🎉 学习单元《${retrievedVideo.title}》已成功搭建AI评测！`, 
-          "success"
-        );
+        if (resJson.isFallback) {
+          showToast(resJson.fallbackMessage || "已为您启动本地离线学习大纲与趣味测验题库！", "success");
+        } else {
+          showToast(
+            hasParts 
+              ? `🎉 学习大纲《${retrievedVideo.title}》已成功导入为合集视频！第一集测评和阅读材料已就绪。`
+              : `🎉 学习单元《${retrievedVideo.title}》已成功搭建AI评测！`, 
+            "success"
+          );
+        }
       } else {
         showToast(resJson.error || "AI生成题目时出现了小问题，请重试！", "error");
       }

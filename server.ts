@@ -34,6 +34,23 @@ function getAi(): GoogleGenAI {
   return aiClient;
 }
 
+// Helper: Wraps a Promise with a timeout to guarantee rapid fallback resolution
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string = "Request timed out"): Promise<T> {
+  let timeoutId: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(errorMessage));
+    }, ms);
+  });
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timeoutId);
+      return res;
+    }),
+    timeoutPromise
+  ]);
+}
+
 // Helper: Extract BVID or AID from Bilibili URL
 function extractBilibiliId(url: string) {
   const bvRegex = /(BV[a-zA-Z0-9]{10})/i;
@@ -910,103 +927,107 @@ app.post("/api/quiz/generate", async (req, res) => {
 回复格式必须遵循所指定的 JSON 格式。`;
 
   try {
-    const response = await getAi().models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          required: ["questions", "fillBlanks", "topicSummary", "keyFormulas", "readingMaterial"],
-          properties: {
-            topicSummary: {
-              type: Type.STRING,
-              description: "对这个视频所学科目知识点的精简提炼（字数在150字以内），方便孩子在测试前快速重温。"
-            },
-            keyFormulas: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                required: ["name", "expression", "unit", "desc"],
-                properties: {
-                  name: { type: Type.STRING, description: `考点名称或规律/公式定律名字。如：${subCfg.keyName}` },
-                  expression: { type: Type.STRING, description: `核心数学式、英文搭配结构或化学反应方程式。如：${subCfg.formulaDesc}` },
-                  unit: { type: Type.STRING, description: "核心单位（如物理/数学有单位则输出，英文/语文无单位可写'无'或词性）" },
-                  desc: { type: Type.STRING, description: "简述此公式或考点用法中所包含各符号/词组分别代表的意思及核心考纲地位" }
-                }
+    const response = await withTimeout(
+      getAi().models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            required: ["questions", "fillBlanks", "topicSummary", "keyFormulas", "readingMaterial"],
+            properties: {
+              topicSummary: {
+                type: Type.STRING,
+                description: "对这个视频所学科目知识点的精简提炼（字数在150字以内），方便孩子在测试前快速重温。"
               },
-              description: "本单元学习涉及的核心学科公式或文法重点，方便孩子在测评前后对照复习。"
-            },
-            readingMaterial: {
-              type: Type.OBJECT,
-              required: ["title", "content", "funFacts", "suggestedActivity"],
-              properties: {
-                title: { type: Type.STRING, description: "富有巧思且对相应学龄段孩子极具吸引力的科普拓展文章标题" },
-                content: { type: Type.STRING, description: "长篇深度科普/语文/英文拓展阅读材料（约400-500字），文字要通俗易懂，适合中小学生，支持Markdown段落排版。" },
-                funFacts: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description: "3条与该课题、作者、学科或规律密切相关、容易引起学习兴趣的冷门知识或学者历史故事"
+              keyFormulas: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  required: ["name", "expression", "unit", "desc"],
+                  properties: {
+                    name: { type: Type.STRING, description: `考点名称或规律/公式定律名字。如：${subCfg.keyName}` },
+                    expression: { type: Type.STRING, description: `核心数学式、英文搭配结构或化学反应方程式。如：${subCfg.formulaDesc}` },
+                    unit: { type: Type.STRING, description: "核心单位（如物理/数学有单位则输出，英文/语文无单位可写'无'或词性）" },
+                    desc: { type: Type.STRING, description: "简述此公式或考点用法中所包含各符号/词组分别代表的意思及核心考纲地位" }
+                  }
                 },
-                suggestedActivity: {
-                  type: Type.STRING,
-                  description: "一个和该节重点相关、能在生活常态下安全体验的趣味实践或动手小实验（包含名字、所需材料/语境和简明可行的探究步骤）"
-                }
-              }
-            },
-            questions: {
-              type: Type.ARRAY,
-              description: "问题列表，包含指定数量 of 单项选择题",
-              items: {
+                description: "本单元学习涉及的核心学科公式或文法重点，方便孩子在测评前后对照复习。"
+              },
+              readingMaterial: {
                 type: Type.OBJECT,
-                required: ["id", "question", "options", "correctAnswer", "difficulty", "explanation", "hint"],
+                required: ["title", "content", "funFacts", "suggestedActivity"],
                 properties: {
-                  id: { type: Type.INTEGER, description: "题目序号，从 1 开始" },
-                  question: { type: Type.STRING, description: "题目文本，清晰地阐明情境、材料或基础问题。" },
-                  options: {
+                  title: { type: Type.STRING, description: "富有巧思且对相应学龄段孩子极具吸引力的科普拓展文章标题" },
+                  content: { type: Type.STRING, description: "长篇深度科普/语文/英文拓展阅读材料（约400-500字），文字要通俗易懂，适合中小学生，支持Markdown段落排版。" },
+                  funFacts: {
                     type: Type.ARRAY,
                     items: { type: Type.STRING },
-                    description: "4个选项：A, B, C, D，需有具体的现象、翻译、运算或答案"
+                    description: "3条与该课题、作者、学科或规律密切相关、容易引起学习兴趣的冷门知识或学者历史故事"
                   },
-                  correctAnswer: {
-                    type: Type.INTEGER,
-                    description: "正确选项的索引值，0代表A，1代表B，2代表C，3代表D"
-                  },
-                  difficulty: {
+                  suggestedActivity: {
                     type: Type.STRING,
-                    description: "题目难度等级，必须是 'basic'、'intermediate'、'challenging' 之一"
-                  },
-                  explanation: {
-                    type: Type.STRING,
-                    description: "详细、带有启发式的幽默名师口吻解析，结合日常和题目情境解释为什么选该项，其他项错在哪里。"
-                  },
-                  hint: {
-                    type: Type.STRING,
-                    description: "一个引导探究式、和蔼的点拨小提示，引导答错的学生进行自主思考。"
+                    description: "一个和该节重点相关、能在生活常态下安全体验的趣味实践或动手小实验（包含名字、所需材料/语境和简明可行的探究步骤）"
                   }
                 }
-              }
-            },
-            fillBlanks: {
-              type: Type.ARRAY,
-              description: "填空题列表，包含 2 道填空题，包含一个 ______ 表示空白处",
-              items: {
-                type: Type.OBJECT,
-                required: ["id", "question", "correctAnswer", "difficulty", "explanation", "hint"],
-                properties: {
-                  id: { type: Type.INTEGER, description: "填空题序号，从 1 开始" },
-                  question: { type: Type.STRING, description: "填空题的题目，必须包涵 ______ 表示空白处" },
-                  correctAnswer: { type: Type.STRING, description: "填空题的确切参考字词答案" },
-                  difficulty: { type: Type.STRING, description: "题目难度等级，必须是 'basic'、'intermediate'、'challenging' 之一" },
-                  explanation: { type: Type.STRING, description: "详尽的名师探究点拨阐释" },
-                  hint: { type: Type.STRING, description: "启发式的解题提示" }
+              },
+              questions: {
+                type: Type.ARRAY,
+                description: "问题列表，包含指定数量 of 单项选择题",
+                items: {
+                  type: Type.OBJECT,
+                  required: ["id", "question", "options", "correctAnswer", "difficulty", "explanation", "hint"],
+                  properties: {
+                    id: { type: Type.INTEGER, description: "题目序号，从 1 开始" },
+                    question: { type: Type.STRING, description: "题目文本，清晰地阐明情境、材料或基础问题。" },
+                    options: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                      description: "4个选项：A, B, C, D，需有具体的现象、翻译、运算或答案"
+                    },
+                    correctAnswer: {
+                      type: Type.INTEGER,
+                      description: "正确选项的索引值，0代表A，1代表B，2代表C，3代表D"
+                    },
+                    difficulty: {
+                      type: Type.STRING,
+                      description: "题目难度等级，必须是 'basic'、'intermediate'、'challenging' 之一"
+                    },
+                    explanation: {
+                      type: Type.STRING,
+                      description: "详细、带有启发式的幽默名师口吻解析，结合日常和题目情境解释为什么选该项，其他项错在哪里。"
+                    },
+                    hint: {
+                      type: Type.STRING,
+                      description: "一个引导探究式、和蔼的点拨小提示，引导答错的学生进行自主思考。"
+                    }
+                  }
+                }
+              },
+              fillBlanks: {
+                type: Type.ARRAY,
+                description: "填空题列表，包含 2 道填空题，包含一个 ______ 表示空白处",
+                items: {
+                  type: Type.OBJECT,
+                  required: ["id", "question", "correctAnswer", "difficulty", "explanation", "hint"],
+                  properties: {
+                    id: { type: Type.INTEGER, description: "填空题序号，从 1 开始" },
+                    question: { type: Type.STRING, description: "填空题的题目，必须包涵 ______ 表示空白处" },
+                    correctAnswer: { type: Type.STRING, description: "填空题的确切参考字词答案" },
+                    difficulty: { type: Type.STRING, description: "题目难度等级，必须是 'basic'、'intermediate'、'challenging' 之一" },
+                    explanation: { type: Type.STRING, description: "详尽的名师探究点拨阐释" },
+                    hint: { type: Type.STRING, description: "启发式的解题提示" }
+                  }
                 }
               }
             }
           }
         }
-      }
-    });
+      }),
+      8000,
+      "Gemini quiz generation timed out"
+    );
 
     const parsedData = JSON.parse(response.text.trim());
     quizCache[cacheKey] = parsedData; // save to cache
@@ -1065,36 +1086,40 @@ ${summaryText}
 回复格式必须遵循所指定的 JSON 格式。`;
 
   try {
-    const response = await getAi().models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          required: ["score", "feedback", "improvementSuggestions", "keyKeywordsMastered", "keyKeywordsMissing"],
-          properties: {
-            score: { type: Type.STRING, description: "优秀/良好/需加油" },
-            feedback: { type: Type.STRING, description: "名师深度点评文本，约200字，语调温柔、鼓励为主" },
-            improvementSuggestions: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "具体、步骤化的复习 and 提升建议（2条）"
-            },
-            keyKeywordsMastered: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "学生掌握并表达正确的关键学术词汇"
-            },
-            keyKeywordsMissing: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "本节非常核心、但学生尚未提及或被漏掉的重点学术概念"
+    const response = await withTimeout(
+      getAi().models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            required: ["score", "feedback", "improvementSuggestions", "keyKeywordsMastered", "keyKeywordsMissing"],
+            properties: {
+              score: { type: Type.STRING, description: "优秀/良好/需加油" },
+              feedback: { type: Type.STRING, description: "名师深度点评文本，约200字，语调温柔、鼓励为主" },
+              improvementSuggestions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "具体、步骤化的复习 and 提升建议（2条）"
+              },
+              keyKeywordsMastered: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "学生掌握并表达正确的关键学术词汇"
+              },
+              keyKeywordsMissing: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "本节非常核心、但学生尚未提及或被漏掉的重点学术概念"
+              }
             }
           }
         }
-      }
-    });
+      }),
+      8000,
+      "Gemini review generation timed out"
+    );
 
     const parsedData = JSON.parse(response.text.trim());
     return res.json({
@@ -1175,10 +1200,14 @@ ${childQuery || "老师，这题好玩在哪，能用日常生活的现象给我
 注意：内容约300字左右，排版层次明晰，支持Markdown。`;
 
   try {
-    const response = await getAi().models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-    });
+    const response = await withTimeout(
+      getAi().models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+      }),
+      8000,
+      "Gemini explain generation timed out"
+    );
 
     return res.json({
       success: true,
