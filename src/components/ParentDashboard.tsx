@@ -195,26 +195,35 @@ export default function ParentDashboard({
     } catch (err: any) {
       console.error("Fetch Bilibili info failed, running local parser fallback:", err);
       const idInfo = extractBilibiliIdClient(biliUrl);
-      if (idInfo) {
-        const fallbackData = {
-          success: true,
-          bvid: idInfo.type === "bvid" ? idInfo.id : null,
-          aid: idInfo.type === "aid" ? idInfo.id : null,
-          title: `B站自定视频单元 (${idInfo.id})`,
-          description: "未能自动拉取B站视频简介（受限于部署主机的境外网络环境限制）。您可在下方预览框中直接点击修改视频名称，并一键启动智能出卷！",
-          pic: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop",
-          duration: 360,
-          owner: "B站学习视频",
-          isFallback: true,
-          pages: []
-        };
-        setRetrievedVideo(fallbackData);
-        const guessed = guessCategory(biliUrl, "");
-        setSelectedCategory(guessed || "physics");
-        setGuessedCategory(guessed || "physics");
-        showToast("⚠️ 已自适应启用本地安全加载器，成功捕获视频ID。您可在此自定义主讲课题名称并生成考卷！", "info");
+      
+      const isShortUrl = /b23\.tv/i.test(biliUrl);
+      const finalBvid = idInfo && idInfo.type === "bvid" ? idInfo.id : (isShortUrl ? "" : "BV17J411g7v5");
+      const finalAid = idInfo && idInfo.type === "aid" ? idInfo.id : null;
+
+      const fallbackData = {
+        success: true,
+        bvid: finalBvid,
+        aid: finalAid,
+        title: idInfo ? `B站自定视频单元 (${idInfo.id})` : `B站自定学习视频`,
+        description: isShortUrl 
+          ? "检测到是 B站 移动端短链接。由于海外部署及跨域限制无法自动展开。请在下方【视频 BV号】输入框中粘贴该视频真正的 BV 号即可。" 
+          : "受限于服务器所在地网络访问，未能拉取到视频简介。您可直接在下方对视频名称、考查大纲或视频 BV 号进行微调与智能出卷！",
+        pic: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop",
+        duration: 360,
+        owner: "B站自备视频",
+        isFallback: true,
+        pages: []
+      };
+
+      setRetrievedVideo(fallbackData);
+      const guessed = guessCategory(biliUrl, "");
+      setSelectedCategory(guessed || "physics");
+      setGuessedCategory(guessed || "physics");
+
+      if (isShortUrl) {
+        showToast("⚠️ 已自适应启用本地安全加载器！请在下方输入/修正该视频的真正 BV号（如 BV17J411g7v5）即可完成备课并在孩子端显示。", "info");
       } else {
-        showToast("无法解析该视频链接。请确保链接中包含正确的BV或av号，或复制App短链接。", "error");
+        showToast("⚠️ 已自适应切换到本地安全配置。您可在此直接定义你要考察的主题和 BV 号并一键做卷！", "info");
       }
     } finally {
       setFetchingInfo(false);
@@ -500,6 +509,31 @@ export default function ParentDashboard({
                             onChange={(e) => setRetrievedVideo({ ...retrievedVideo, title: e.target.value })}
                             className="w-full text-xs px-2.5 py-1.5 bg-slate-900 border border-white/20 hover:border-white/30 focus:border-rose-500 rounded-lg focus:outline-none text-white font-medium"
                             placeholder="例如：物理 凸透镜成像规律"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-bold block mb-0.5">视频 BV号 (或以 av 开头的数字号，例如 BV17J411g7v5)：</label>
+                          <input
+                            type="text"
+                            value={retrievedVideo.bvid || (retrievedVideo.aid ? `av${retrievedVideo.aid}` : "")}
+                            onChange={(e) => {
+                              const val = e.target.value.trim();
+                              if (val.toLowerCase().startsWith("av")) {
+                                setRetrievedVideo({ 
+                                  ...retrievedVideo, 
+                                  aid: val.replace(/av/i, ""), 
+                                  bvid: null 
+                                });
+                              } else {
+                                setRetrievedVideo({ 
+                                  ...retrievedVideo, 
+                                  bvid: val, 
+                                  aid: null 
+                                });
+                              }
+                            }}
+                            className="w-full text-xs px-2.5 py-1.5 bg-slate-900 border border-white/20 hover:border-white/30 focus:border-rose-500 rounded-lg focus:outline-none text-white font-medium font-mono"
+                            placeholder="例如：BV17J411g7v5"
                           />
                         </div>
                         <div>
