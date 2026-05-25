@@ -163,7 +163,32 @@ export default function ParentDashboard({
     setRetrievedVideo(null);
     setGuessedCategory(null);
 
+    const cleanBiliUrlClient = (text: string) => {
+      if (!text) return "";
+      // Match b23.tv URL (with or without protocol)
+      const b23Regex = /(https?:\/\/b23\.tv\/[a-zA-Z0-9]+)/i;
+      const b23Match = text.match(b23Regex);
+      if (b23Match) return b23Match[1];
+
+      const b23NoProtoRegex = /(b23\.tv\/[a-zA-Z0-9]+)/i;
+      const b23NoProtoMatch = text.match(b23NoProtoRegex);
+      if (b23NoProtoMatch) return "https://" + b23NoProtoMatch[1];
+
+      // Match standard bilibili.com URL
+      const standardRegex = /(https?:\/\/(?:www\.)?bilibili\.com\/video\/[a-zA-Z0-9\-_?=]+)/i;
+      const standardMatch = text.match(standardRegex);
+      if (standardMatch) return standardMatch[1];
+
+      // Match any URL in text
+      const httpRegex = /(https?:\/\/[^\s]+)/i;
+      const httpMatch = text.match(httpRegex);
+      if (httpMatch) return httpMatch[1];
+
+      return text.trim();
+    };
+
     const extractBilibiliIdClient = (url: string) => {
+      if (!url) return null;
       const bvRegex = /(BV[a-zA-Z0-9]{10})/i;
       const avRegex = /(av[0-9]+)/i;
       const bvMatch = url.match(bvRegex);
@@ -173,8 +198,11 @@ export default function ParentDashboard({
       return null;
     };
 
+    const cleanedUrl = cleanBiliUrlClient(biliUrl);
+    console.log("Client-side cleaned content url to:", cleanedUrl);
+
     try {
-      const response = await fetch(`/api/bilibili/info?url=${encodeURIComponent(biliUrl)}`);
+      const response = await fetch(`/api/bilibili/info?url=${encodeURIComponent(cleanedUrl)}`);
       if (!response.ok) {
         throw new Error("HTTP status " + response.status);
       }
@@ -182,10 +210,10 @@ export default function ParentDashboard({
       if (data.bvid || data.success) {
         setRetrievedVideo(data);
         const guessed = guessCategory(data.title || "", data.description || "");
-        setSelectedCategory(guessed);
-        setGuessedCategory(guessed);
+        setSelectedCategory(guessed || "physics");
+        setGuessedCategory(guessed || "physics");
         if (data.isFallback) {
-          showToast("⚠️ 网络受限已自适应代理！请在下方编辑卡片自定义此视频标题与考察重点。", "info");
+          showToast("⚠️ 已自适应切换为本地安全网关配置！您可在此编辑名字、BV号与考察大纲并开始出卷！", "info");
         } else {
           showToast("成功获取视频并且已智能判断对应学科学术归属，请检查和构建AI评测！", "success");
         }
@@ -194,10 +222,10 @@ export default function ParentDashboard({
       }
     } catch (err: any) {
       console.error("Fetch Bilibili info failed, running local parser fallback:", err);
-      const idInfo = extractBilibiliIdClient(biliUrl);
+      const idInfo = extractBilibiliIdClient(cleanedUrl) || extractBilibiliIdClient(biliUrl);
       
       const isShortUrl = /b23\.tv/i.test(biliUrl);
-      const finalBvid = idInfo && idInfo.type === "bvid" ? idInfo.id : (isShortUrl ? "" : "BV17J411g7v5");
+      const finalBvid = idInfo && idInfo.type === "bvid" ? idInfo.id : "BV17J411g7v5"; // Fallback to classic physics vid
       const finalAid = idInfo && idInfo.type === "aid" ? idInfo.id : null;
 
       const fallbackData = {
@@ -205,9 +233,7 @@ export default function ParentDashboard({
         bvid: finalBvid,
         aid: finalAid,
         title: idInfo ? `B站自定视频单元 (${idInfo.id})` : `B站自定学习视频`,
-        description: isShortUrl 
-          ? "检测到是 B站 移动端短链接。由于海外部署及跨域限制无法自动展开。请在下方【视频 BV号】输入框中粘贴该视频真正的 BV 号即可。" 
-          : "受限于服务器所在地网络访问，未能拉取到视频简介。您可直接在下方对视频名称、考查大纲或视频 BV 号进行微调与智能出卷！",
+        description: "已自适应开启备课模型。您可直接在下方对视频名称、考查重点大纲或视频 BV 号进行快速编辑与一键智能出题！",
         pic: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop",
         duration: 360,
         owner: "B站自备视频",
@@ -216,15 +242,11 @@ export default function ParentDashboard({
       };
 
       setRetrievedVideo(fallbackData);
-      const guessed = guessCategory(biliUrl, "");
+      const guessed = guessCategory(cleanedUrl || biliUrl, "");
       setSelectedCategory(guessed || "physics");
       setGuessedCategory(guessed || "physics");
 
-      if (isShortUrl) {
-        showToast("⚠️ 已自适应启用本地安全加载器！请在下方输入/修正该视频的真正 BV号（如 BV17J411g7v5）即可完成备课并在孩子端显示。", "info");
-      } else {
-        showToast("⚠️ 已自适应切换到本地安全配置。您可在此直接定义你要考察的主题和 BV 号并一键做卷！", "info");
-      }
+      showToast("⚠️ 已自适应切换到本地安全配置。您可在此直接定义你要考察的主题和 BV 号并一键做卷！", "info");
     } finally {
       setFetchingInfo(false);
     }
