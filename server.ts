@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 
@@ -16,15 +15,24 @@ app.use(express.json());
 // completely avoiding duplicate Gemini requests and saving daily quota.
 const quizCache: Record<string, any> = {};
 
-// Initialize Gemini SDK with recommended user-agent header
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
-});
+let aiClient: GoogleGenAI | null = null;
+function getAi(): GoogleGenAI {
+  if (!aiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      console.warn("⚠️ Warning: GEMINI_API_KEY is not configured!");
+    }
+    aiClient = new GoogleGenAI({
+      apiKey: key || "PLACEHOLDER",
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+  return aiClient;
+}
 
 // Helper: Extract BVID or AID from Bilibili URL
 function extractBilibiliId(url: string) {
@@ -818,7 +826,7 @@ app.post("/api/quiz/generate", async (req, res) => {
 回复格式必须遵循所指定的 JSON 格式。`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
@@ -973,7 +981,7 @@ ${summaryText}
 回复格式必须遵循所指定的 JSON 格式。`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
@@ -1083,7 +1091,7 @@ ${childQuery || "老师，这题好玩在哪，能用日常生活的现象给我
 注意：内容约300字左右，排版层次明晰，支持Markdown。`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
     });
@@ -1106,6 +1114,7 @@ ${childQuery || "老师，这题好玩在哪，能用日常生活的现象给我
 // Vite & Express Dev/Prod Server Listener initialization
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
