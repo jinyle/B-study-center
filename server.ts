@@ -42,13 +42,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string = 
       reject(new Error(errorMessage));
     }, ms);
   });
-  return Promise.race([
-    promise.then((res) => {
-      clearTimeout(timeoutId);
-      return res;
-    }),
-    timeoutPromise
-  ]);
+  const wrappedPromise = promise.then((res) => {
+    clearTimeout(timeoutId);
+    return res;
+  });
+  wrappedPromise.catch((err) => {
+    console.warn("Background promise finished with error:", err?.message || err);
+  });
+  return Promise.race([wrappedPromise, timeoutPromise]);
 }
 
 // Helper: Extract BVID or AID from Bilibili URL
@@ -1032,7 +1033,7 @@ app.post("/api/quiz/generate", async (req, res) => {
           }
         }
       }),
-      18000,
+      14000,
       "Gemini quiz generation timed out"
     );
 
