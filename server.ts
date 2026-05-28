@@ -1033,7 +1033,7 @@ app.post("/api/quiz/generate", async (req, res) => {
           }
         }
       }),
-      14000,
+      7500,
       "Gemini quiz generation timed out"
     );
 
@@ -1125,7 +1125,7 @@ ${summaryText}
           }
         }
       }),
-      12000,
+      7500,
       "Gemini review generation timed out"
     );
 
@@ -1213,7 +1213,7 @@ ${childQuery || "老师，这题好玩在哪，能用日常生活的现象给我
         model: "gemini-3.5-flash",
         contents: prompt,
       }),
-      12000,
+      7500,
       "Gemini explain generation timed out"
     );
 
