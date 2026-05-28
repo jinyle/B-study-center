@@ -901,6 +901,13 @@ app.post("/api/quiz/generate", async (req, res) => {
 【核心学科/科学范畴】：${category || "综合科普与自然学科"}
 【计划生成题数】：${questionCount} 道单项选择题，以及另外 2 到 3 道核心概念填空题。
 
+【极致速度与精简度规范】：
+为了获得最快人机交互速度，请严格控制产出的每个文本长度，绝不要出现冗长废话：
+1. 所有的选择题数量不超过 ${questionCount} 道，每道题的 explanation（名师解析）必须在 60 字内，hint（思路启发）在 20 字内。
+2. 填空题数量限制为 2 道，其 explanation 必须在 50 字内，hint 在 20 字内。
+3. 拓展阅读材料的 content 保证字数在 250 至 300 字之间（排版紧密通俗易懂），其 title 在 25 字内。
+4. 趣味冷知识 funFacts 恰好提供 2 条即可，并且每一条冷知识的字数不超过 40 字。
+
 【最核心的范围匹配铁律与纯净度要求（极度严格重要）】：
 1. **测试题目完全匹配本章节视频，严禁超纲或混入无关学科题目**：
    - 所有的选择题 (questions) 和 填空题 (fillBlanks) 必须 100% 局限在本视频的主题内容以及视频中所蕴含的、直接表达的科学定律、公式或学科概念范围内！
@@ -1025,7 +1032,7 @@ app.post("/api/quiz/generate", async (req, res) => {
           }
         }
       }),
-      6000,
+      18000,
       "Gemini quiz generation timed out"
     );
 
@@ -1117,7 +1124,7 @@ ${summaryText}
           }
         }
       }),
-      6000,
+      12000,
       "Gemini review generation timed out"
     );
 
@@ -1205,7 +1212,7 @@ ${childQuery || "老师，这题好玩在哪，能用日常生活的现象给我
         model: "gemini-3.5-flash",
         contents: prompt,
       }),
-      6000,
+      12000,
       "Gemini explain generation timed out"
     );
 
