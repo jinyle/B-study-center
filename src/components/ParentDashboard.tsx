@@ -338,7 +338,12 @@ export default function ParentDashboard({
       }
     } catch (err: any) {
       console.error(err);
-      showToast("连接超时。请检查AI接口配额，或稍后点击重试。", "error");
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes("Unexpected token") || errMsg.includes("Failed to fetch")) {
+        showToast("出卷请求超时或服务器连接受限，建议您稍微点击【重新出卷】重试一次！", "error");
+      } else {
+        showToast(`AI出卷异常: ${errMsg}，请稍微点击重重一次！`, "error");
+      }
     } finally {
       clearInterval(interval);
       setGeneratingQuiz(false);
